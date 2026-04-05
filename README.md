@@ -36,7 +36,7 @@ An AI-powered system that automatically analyzes software requirements documents
 | Parsing    | PyPDF2, python-docx                 |
 | Deployment | Docker, Docker Compose              |
 
-## Quick Start
+## Getting Started
 
 ### Prerequisites
 
@@ -55,8 +55,9 @@ cd ai-ucp-estimation
 
 ```bash
 cp .env.example .env
-# Edit .env and set your API key
 ```
+
+Edit `.env` and set your API key:
 
 ```env
 OPENAI_API_KEY=your-api-key-here
@@ -65,17 +66,15 @@ OPENAI_BASE_URL=https://openrouter.ai/api/v1   # optional — for OpenRouter
 LOG_LEVEL=INFO
 ```
 
-### 3. Run with Docker Compose (recommended)
+### 3. Choose a run option
 
-```bash
-docker compose up --build
-```
+You can run the project either **locally** (requires Python and Node.js installed) or **with Docker** (requires Docker installed). Pick one:
 
-- Frontend: http://localhost:3000
-- Backend API: http://localhost:8000
-- API Docs (Swagger): http://localhost:8000/docs
+---
 
-### 4. Or run manually
+#### Option A — Run Locally
+
+Start the backend and frontend separately on your machine.
 
 **Backend**
 
@@ -85,13 +84,31 @@ pip install -r requirements.txt
 uvicorn app.main:app --reload --port 8000
 ```
 
-**Frontend**
+**Frontend** (open a new terminal)
 
 ```bash
 cd frontend
 npm install
 npm start
 ```
+
+---
+
+#### Option B — Run with Docker
+
+Build and run both services with a single command.
+
+```bash
+docker compose up --build
+```
+
+---
+
+### 4. Open the app
+
+- Frontend: http://localhost:3000
+- Backend API: http://localhost:8000
+- API Docs (Swagger): http://localhost:8000/docs
 
 ## API Reference
 
