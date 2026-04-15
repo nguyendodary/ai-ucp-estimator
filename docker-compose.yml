@@ -8,8 +8,8 @@ services:
     ports:
       - "8000:8000"
     environment:
-      - OPENAI_API_KEY=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
-      - OPENAI_MODEL=openrouter/free
+      - OPENAI_API_KEY=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
+      - OPENAI_MODEL=google/gemma-4-31b-it:free
       - OPENAI_BASE_URL=https://openrouter.ai/api/v1
       - LOG_LEVEL=DEBUG
     volumes:
