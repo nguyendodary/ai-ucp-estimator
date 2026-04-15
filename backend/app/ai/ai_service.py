@@ -26,13 +26,25 @@ You are an expert software requirements analyst. Analyze requirements and extrac
 
 {SKILLS_CONTENT}
 
-STRICT RULES:
-1. For EACH use case, you MUST estimate transactions based on what the use case does
-2. NEVER set all transactions to 1 - this is WRONG
-3. "Book Room" typically has 5-7 transactions (select, validate, calculate, process payment, confirm, notify)
-4. "Search Hotels" typically has 3-4 transactions (input criteria, query, filter results, display)
-5. "Manage Rooms" typically has 6-10 transactions (add/edit/delete operations with validation)
-6. "Make Payment" typically has 4-6 transactions (enter details, validate, process, confirm, receipt)
+CRITICAL RULES FOR ACTORS:
+- Customer/User/Client → Average (2)
+- Admin/Manager/Supervisor → Complex (3)
+- Email Service/Notification Service → Simple (1)
+- Payment Gateway → Complex (3)
+
+CRITICAL RULES FOR USE CASES:
+- Login/Logout → 2-3 transactions (Simple)
+- Registration → 3-5 transactions
+- Search/Browse → 3-5 transactions
+- View Details → 2-3 transactions
+- Book Room/Checkout → 5-8 transactions (Average/Complex)
+- Payment → 5-7 transactions (Average/Complex)
+- Manage Rooms/Users → 6-10 transactions (Complex)
+- Cancel Booking → 3-4 transactions
+- Reports → 4-7 transactions (Average)
+- Send Email → 2-3 transactions (Simple)
+
+NEVER set all transactions to 1 or 2. This is wrong.
 
 Output schema:
 {{"actors":[{{"name":"string","type":"simple|average|complex"}}],"use_cases":[{{"name":"string","transactions":number}}]}}
