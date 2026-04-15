@@ -5,7 +5,7 @@
 Analyze a software requirements document and extract:
 
 - Actors
-- Use Cases
+- Use Cases (with transaction counts)
 - Complexity classification
 - UCP metrics (UAW, UUCW, UUCP, TCF, ECF, UCP)
 
@@ -21,44 +21,68 @@ An **Actor** is an external entity that interacts with the system.
 
 | Type    | Description                                                 | Weight |
 | ------- | ----------------------------------------------------------- | ------ |
-| Simple  | Another system with API interaction                         | 1      |
-| Average | Human using system via UI                                   | 2      |
-| Complex | Human or system with complex interactions or multiple roles | 3      |
+| Simple  | External system with simple API interaction                  | 1      |
+| Average | Human using system via UI                                    | 2      |
+| Complex | Human with complex interactions or Admin/Manager roles     | 3      |
 
 ### Important Rules
 
-- Humans using UI → usually **Average (2)**
-- External systems (API, services) → usually **Simple (1)** or **Complex (3)** depending on interaction complexity
-- Admin roles → often **Complex (3)**
+- Customer/User → **Average (2)**
+- Admin/Manager → **Complex (3)**
+- External systems (Payment Gateway, Email Service) → **Simple (1)**
 
 ---
 
 ## Step 2: Identify Use Cases
 
-### Definition
-
-A **Use Case** is a sequence of actions that provides value to an actor.
+Each functional requirement listed in the document is a use case.
 
 ---
 
-## Step 3: Count Transactions
+## Step 3: Count Transactions (CRITICAL)
 
 ### Definition
 
-A **Transaction** is a meaningful interaction between actor and system.
+A **Transaction** is a meaningful interaction between actor and system. This includes:
 
-Examples:
-
-- Input data
-- System validation
+- User input/validation
 - Data processing
-- Output response
+- Database access
+- System response/output
+
+### Common Transaction Estimates
+
+| Use Case Type          | Typical Transactions |
+| ---------------------- | -------------------- |
+| Login/Logout          | 2–3                  |
+| Registration           | 3–5                  |
+| Search/Browse          | 3–4                  |
+| View Details           | 2–3                  |
+| Add/Edit Record        | 4–6                  |
+| Delete/Cancel          | 3–4                  |
+| Checkout/Payment       | 5–7                  |
+| Admin Management       | 5–10                 |
+| Reports                | 4–7                  |
+| Send Email/Notification| 2–3                  |
+
+### Key Rule
+
+DO NOT assume 1 use case = 1 transaction. A single use case like "Book Room" involves:
+- Select room
+- Enter details
+- Validate availability
+- Calculate price
+- Process payment
+- Confirm booking
+- Send confirmation
+
+That is 6–7 transactions, making it COMPLEX (weight: 15).
 
 ---
 
 ## Step 4: Classify Use Case Complexity
 
-### STRICT RULES (must follow)
+### STRICT RULES
 
 | Complexity | Transactions | Weight |
 | ---------- | ------------ | ------ |
@@ -66,17 +90,9 @@ Examples:
 | Average    | 4–7          | 10     |
 | Complex    | 8+           | 15     |
 
-### Critical Instructions
-
-- ALWAYS estimate number of transactions
-- DO NOT classify based on description length
-- DO NOT guess — infer logically from actions
-
 ---
 
 ## Step 5: UCP Calculation
-
-### Formulas
 
 - UAW = sum(actor weights)
 - UUCW = sum(use case weights)
@@ -89,72 +105,63 @@ Examples:
 
 ## Step 6: Output Format (STRICT JSON)
 
-Return ONLY valid JSON. No explanations.
+Return ONLY valid JSON with this schema:
 
 ```json
 {
   "actors": [
-    {
-      "name": "Actor Name",
-      "complexity": "Simple | Average | Complex",
-      "weight": 1
-    }
+    {"name": "Actor Name", "type": "simple|average|complex"}
   ],
   "use_cases": [
-    {
-      "name": "Use Case Name",
-      "transactions": 4,
-      "complexity": "Average",
-      "weight": 10
-    }
-  ],
-  "uaw": 0,
-  "uucw": 0,
-  "uucp": 0,
-  "tcf": 1.0,
-  "ecf": 1.0,
-  "ucp": 0
+    {"name": "Use Case Name", "transactions": number}
+  ]
 }
 ```
 
 ---
 
+## Example Analysis
+
+### Input:
+"Online Hotel Booking: Customers can search hotels, view room details, book rooms and make payments. Hotel managers manage rooms and bookings. Admin manages users."
+
+### Analysis:
+
+**Actors:**
+- Customer → Average (2)
+- Hotel Manager → Complex (3)
+- Admin → Complex (3)
+- Payment Gateway → Simple (1)
+- Email Service → Simple (1)
+
+**Use Cases (with transactions):**
+- Search Hotels → 4 transactions → Average (10)
+- View Room Details → 3 transactions → Simple (5)
+- Book Room → 6 transactions → Average (10)
+- Make Payment → 5 transactions → Average (10)
+- Cancel Booking → 4 transactions → Average (10)
+- Manage Rooms → 7 transactions → Average (10)
+- Manage Bookings → 6 transactions → Average (10)
+- Manage Users → 6 transactions → Average (10)
+- Send Confirmation → 2 transactions → Simple (5)
+
+**Calculation:**
+- UAW = 2+3+3+1+1 = 10
+- UUCW = 10+5+10+10+10+10+10+10+5 = 80
+- UUCP = 90
+- UCP = 90
+
+---
+
 ## Common Mistakes to Avoid
 
-- Classifying all actors as Complex
-- Ignoring external systems as actors
-- Underestimating transactions
-- Classifying use cases as Simple by default
-- Returning text instead of JSON
-
----
-
-## Quality Checklist
-
-Before returning the result, ensure:
-
-- All actors are identified
-- All use cases are extracted
-- Each use case has transaction count
-- Complexity follows strict rules
-- JSON format is valid
-
----
-
-## Example (Reference Only)
-
-Input:
-"User logs in and views dashboard"
-
-Output:
-
-- Transactions: 3
-- Complexity: Simple
-- Weight: 5
+- ❌ Setting all transactions to 1
+- ❌ Setting all use cases as Simple
+- ❌ Ignoring Admin/Manager complexity
+- ❌ Underestimating booking/checkout transactions
 
 ---
 
 ## Final Instruction
 
-Be precise, consistent, and deterministic.
-Follow rules strictly. Do not improvise.
+Analyze each use case independently. Estimate transactions based on what the use case actually does. Be realistic — do not under-estimate.

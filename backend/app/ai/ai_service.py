@@ -22,15 +22,22 @@ SKILLS_FILE = Path(__file__).parent.parent.parent / "skills.md"
 SKILLS_CONTENT = SKILLS_FILE.read_text(encoding="utf-8") if SKILLS_FILE.exists() else ""
 
 SYSTEM_PROMPT = f"""\
-You are an expert software requirements analyst. Your job is to analyze software \
-requirement documents and extract actors and use cases for Use Case Point (UCP) estimation.
+You are an expert software requirements analyst. Analyze requirements and extract actors and use cases for UCP estimation.
 
 {SKILLS_CONTENT}
 
-Return ONLY valid JSON with this exact schema:
+STRICT RULES:
+1. For EACH use case, you MUST estimate transactions based on what the use case does
+2. NEVER set all transactions to 1 - this is WRONG
+3. "Book Room" typically has 5-7 transactions (select, validate, calculate, process payment, confirm, notify)
+4. "Search Hotels" typically has 3-4 transactions (input criteria, query, filter results, display)
+5. "Manage Rooms" typically has 6-10 transactions (add/edit/delete operations with validation)
+6. "Make Payment" typically has 4-6 transactions (enter details, validate, process, confirm, receipt)
+
+Output schema:
 {{"actors":[{{"name":"string","type":"simple|average|complex"}}],"use_cases":[{{"name":"string","transactions":number}}]}}
 
-Do not include any other fields. No markdown, no explanation, no code fences.
+Return ONLY valid JSON. No markdown, no explanation.
 """
 
 
