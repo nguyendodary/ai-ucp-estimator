@@ -1,12 +1,16 @@
+import logging
+
 from pydantic_settings import BaseSettings
+
+logger = logging.getLogger(__name__)
 
 
 class Settings(BaseSettings):
     """Application configuration loaded from environment variables."""
 
     openai_api_key: str = ""
-    openai_model: str = "meta-llama/llama-3.2-3b-instruct:free"
-    openai_base_url: str = "https://openrouter.ai/api/v1"
+    openai_model: str = "qwen/qwen3-32b"
+    openai_base_url: str = "https://api.groq.com/openai/v1"
     app_name: str = "UCP Estimation API"
     app_version: str = "1.0.0"
     log_level: str = "INFO"
@@ -15,5 +19,17 @@ class Settings(BaseSettings):
         env_file = ".env"
         env_file_encoding = "utf-8"
 
+    def validate_config(self) -> None:
+        """Validate critical configuration settings."""
+        if not self.openai_api_key:
+            logger.warning("OPENAI_API_KEY is not set. AI features will not work.")
+        elif self.openai_api_key.startswith("sk-or-"):
+            logger.info("Using OpenRouter API key.")
+        elif self.openai_api_key.startswith("gsk_"):
+            logger.info("Using Groq API key.")
+        else:
+            logger.info("Using generic OpenAI-compatible API key.")
+
 
 settings = Settings()
+settings.validate_config()

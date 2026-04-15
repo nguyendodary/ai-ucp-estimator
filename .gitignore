@@ -1,7 +1,36 @@
 node_modules/
 __pycache__/
 *.pyc
-.env
 *.egg-info/
 dist/
 build/
+
+# Environment and local secrets
+.env
+.env.*
+!.env.example
+
+# Secret files and credentials
+*.pem
+*.key
+*.crt
+*.p12
+*.pfx
+*.jks
+*.kdbx
+*.ovpn
+id_rsa
+id_rsa.pub
+credentials.json
+secrets.json
+
+# Python virtual environments
+.venv/
+venv/
+env/
+
+# OS/editor noise
+.DS_Store
+Thumbs.db
+.idea/
+.vscode/

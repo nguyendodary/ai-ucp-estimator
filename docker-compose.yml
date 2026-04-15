@@ -7,11 +7,13 @@ services:
       dockerfile: Dockerfile
     ports:
       - "8000:8000"
+    env_file:
+      - .env
     environment:
-      - OPENAI_API_KEY=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
-      - OPENAI_MODEL=openrouter/free
-      - OPENAI_BASE_URL=https://openrouter.ai/api/v1
-      - LOG_LEVEL=DEBUG
+      - LOG_LEVEL=${LOG_LEVEL:-INFO}
+      - OPENAI_API_KEY=${OPENAI_API_KEY}
+      - OPENAI_MODEL=${OPENAI_MODEL}
+      - OPENAI_BASE_URL=${OPENAI_BASE_URL}
     volumes:
       - ./backend:/app
     restart: unless-stopped

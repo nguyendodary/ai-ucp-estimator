@@ -1,82 +1,60 @@
-# AI-Powered Use Case Point (UCP) Estimator
+# AI-Powered UCP Estimator
 
-An AI-powered system that automatically analyzes software requirements documents and produces Use Case Point (UCP) effort estimates. Upload a requirements file (PDF, DOCX, TXT) or paste raw text — the system uses a large language model to extract actors and use cases, classifies their complexity, and returns a full UCP breakdown with visual charts.
+AI-powered Use Case Point (UCP) estimation for software requirements.  
+Upload a requirements file (`.pdf`, `.docx`, `.txt`) or paste text, and the system extracts actors/use cases with an LLM, calculates UCP metrics, and shows dashboard insights with exportable reporting.
 
-## Features
+## Key Features
 
-- **File upload** — supports PDF, DOCX, and TXT requirements documents
-- **Text input** — paste requirements directly into the UI
-- **AI extraction** — uses OpenAI-compatible LLMs to identify actors, use cases, and their complexity (Simple / Average / Complex)
-- **UCP calculation** — computes UAW, UUCW, UUCP, TCF, ECF, and final UCP
-- **Interactive dashboard** — metric cards, detailed breakdown tables, and Chart.js visualizations
-- **Docker-ready** — one-command deployment with `docker compose`
+- File parsing for PDF, DOCX, and TXT requirements.
+- LLM-based extraction of actors and use cases.
+- UCP calculation with `UAW`, `UUCW`, `UUCP`, `TCF`, `ECF`, `UCP`, and `effort_hours`.
+- Auto-detected technical triggers (`tcf_triggers`) from reasoning text.
+- Frontend dashboard with metric cards, breakdown tables, and charts.
+- PDF report export from dashboard (`jspdf` + `jspdf-autotable`).
+- Docker Compose support for local full-stack startup.
 
-## Architecture
+## Tech Stack
 
-```
-┌──────────────┐          ┌──────────────┐
-│   Frontend   │  HTTP    │   Backend    │
-│   (React)    │─────────>│  (FastAPI)   │
-│   :3000      │          │   :8000      │
-└──────────────┘          └──────┬───────┘
-                                 │
-                          ┌──────▼───────┐
-                          │  LLM API     │
-                          │ (OpenRouter) │
-                          └──────────────┘
-```
+- Frontend: React 18, Axios, Chart.js, jsPDF, jspdf-autotable
+- Backend: FastAPI, Pydantic, Uvicorn
+- Parsing: PyPDF2, python-docx
+- AI client: OpenAI-compatible API endpoint
+- Infra: Docker, Docker Compose
 
-### Tech Stack
+## Quick Start
 
-| Layer      | Technology                          |
-|------------|-------------------------------------|
-| Frontend   | React 18, Chart.js, Axios           |
-| Backend    | FastAPI, Pydantic, Uvicorn          |
-| AI         | OpenAI SDK (OpenRouter compatible)  |
-| Parsing    | PyPDF2, python-docx                 |
-| Deployment | Docker, Docker Compose              |
+### 1) Configure environment variables
 
-## Getting Started
-
-### Prerequisites
-
-- Python 3.11+
-- Node.js 18+
-- An OpenAI-compatible API key (OpenRouter, OpenAI, etc.)
-
-### 1. Clone the repository
-
-```bash
-git clone https://github.com/nguyendodary/ai-ucp-estimator.git
-cd ai-ucp-estimation
-```
-
-### 2. Configure environment
+Create `.env` from the template:
 
 ```bash
 cp .env.example .env
 ```
 
-Edit `.env` and set your API key:
+Set values in `.env`:
 
 ```env
 OPENAI_API_KEY=your-api-key-here
-OPENAI_MODEL=gpt-4o
-OPENAI_BASE_URL=https://openrouter.ai/api/v1   # optional — for OpenRouter
+OPENAI_MODEL=grok-2-1212
+OPENAI_BASE_URL=https://api.x.ai/v1
 LOG_LEVEL=INFO
 ```
 
-### 3. Choose a run option
+### 2) Run with Docker (recommended)
 
-You can run the project either **locally** (requires Python and Node.js installed) or **with Docker** (requires Docker installed). Pick one:
+```bash
+docker compose up --build
+```
 
----
+Access:
 
-#### Option A — Run Locally
+- Frontend: [http://localhost:3000](http://localhost:3000)
+- Backend: [http://localhost:8000](http://localhost:8000)
+- API docs: [http://localhost:8000/docs](http://localhost:8000/docs)
 
-Start the backend and frontend separately on your machine.
+### 3) Run locally (without Docker)
 
-**Backend**
+Backend:
 
 ```bash
 cd backend
@@ -84,7 +62,7 @@ pip install -r requirements.txt
 uvicorn app.main:app --reload --port 8000
 ```
 
-**Frontend** (open a new terminal)
+Frontend (new terminal):
 
 ```bash
 cd frontend
@@ -92,100 +70,57 @@ npm install
 npm start
 ```
 
----
-
-#### Option B — Run with Docker
-
-Build and run both services with a single command.
-
-```bash
-docker compose up --build
-```
-
----
-
-### 4. Open the app
-
-- Frontend: http://localhost:3000
-- Backend API: http://localhost:8000
-- API Docs (Swagger): http://localhost:8000/docs
-
-## API Reference
+## API Overview
 
 ### `POST /api/analyze`
 
-Analyzes requirements and returns UCP metrics.
+Analyzes requirement text or file input and returns:
 
-**Request** (multipart form):
-
-| Field  | Type   | Description                        |
-|--------|--------|------------------------------------|
-| text   | string | Raw requirements text (optional)   |
-| file   | file   | PDF / DOCX / TXT file (optional)   |
-
-**Response:**
-
-```json
-{
-  "actors": [
-    { "name": "Customer", "weight": 1, "complexity": "Simple" }
-  ],
-  "use_cases": [
-    { "name": "Login", "weight": 5, "complexity": "Average" }
-  ],
-  "uaw": 3,
-  "uucw": 15,
-  "uucp": 18,
-  "tcf": 1.0,
-  "ecf": 1.0,
-  "ucp": 18.0
-}
-```
-
-### `POST /api/analyze/detail`
-
-Same as above but returns per-actor and per-use-case detailed breakdowns for chart rendering.
+- `reasoning_log`
+- `actors`
+- `use_cases`
+- `uaw`, `uucw`, `uucp`, `tcf`, `ecf`, `ucp`, `effort_hours`
+- `tcf_triggers`
 
 ### `GET /health`
 
-Health check endpoint.
+Basic health check endpoint.
 
-## UCP Methodology
+## PDF Report Export
 
-The system follows the standard Use Case Point method:
+From the result dashboard, click **Export PDF Report** to generate an A4 report containing:
 
-1. **Unadjusted Actor Weight (UAW)** — actors classified as Simple (1), Average (2), or Complex (3)
-2. **Unadjusted Use Case Weight (UUCW)** — use cases classified as Simple (5), Average (10), or Complex (15)
-3. **Unadjusted Use Case Points (UUCP)** — UAW + UUCW
-4. **Technical Complexity Factor (TCF)** — default 1.0
-5. **Environmental Complexity Factor (ECF)** — default 1.0
-6. **Final UCP** — UUCP x TCF x ECF
+1. Summary metrics table (`UAW`, `UUCW`, `TCF`, `ECF`, `Final UCP`, `Effort Hours`)
+2. Breakdown tables for actors and use cases
+3. Technical justifications from auto-detected `tcf_triggers`
+
+## Security and Sensitive Files
+
+- Never commit real secrets (API keys, tokens, certificates, local credentials).
+- Use `.env.example` for safe placeholders only.
+- Keep your real `.env` and secret material local; ignore patterns are defined in `.gitignore`.
 
 ## Project Structure
 
 ```
+.
 ├── backend/
 │   ├── app/
-│   │   ├── ai/ai_service.py        # LLM prompt & extraction
-│   │   ├── core/                   # config, cache, logging
-│   │   ├── models/schemas.py       # Pydantic models
+│   │   ├── ai/
+│   │   ├── core/
+│   │   ├── models/
 │   │   ├── services/
-│   │   │   ├── parser.py           # PDF / DOCX / TXT parsing
-│   │   │   └── calculator.py       # UCP computation
-│   │   ├── routes.py               # FastAPI endpoints
-│   │   └── main.py                 # App entry point
+│   │   ├── main.py
+│   │   └── routes.py
 │   ├── requirements.txt
-│   ├── Dockerfile
-│   └── test_api.py
+│   └── Dockerfile
 ├── frontend/
 │   ├── src/
-│   │   ├── components/             # React UI components
-│   │   ├── App.js
-│   │   └── api.js                  # Axios API client
 │   ├── package.json
 │   └── Dockerfile
 ├── docker-compose.yml
-└── .env.example
+├── .env.example
+└── README.md
 ```
 
 ## License

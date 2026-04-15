@@ -55,20 +55,25 @@ async def analyze(
     try:
         extraction = await ai_service.extract(raw_text)
     except ValueError as e:
-        logger.error("AI extraction failed: %s", e)
+        logger.error("AI extraction validation failed: %s", e)
         raise HTTPException(status_code=502, detail=f"AI processing error: {e}") from e
     except Exception as e:
-        logger.error("Unexpected error during AI extraction: %s", e)
+        logger.error("Unexpected error during AI extraction: %s\n%s", e, traceback.format_exc())
+        # Provide more detail in the error response for debugging
+        error_detail = f"Internal error during AI processing: {type(e).__name__}: {str(e)}"
         raise HTTPException(
-            status_code=500, detail="Internal error during AI processing"
+            status_code=500, detail=error_detail
         ) from e
 
     # UCP calculation
     metrics, actor_breakdowns, uc_breakdowns = calculator.compute(
-        extraction.actors, extraction.use_cases
+        extraction.actors,
+        extraction.use_cases,
+        extraction.reasoning_log,
     )
 
     return AnalysisResponse(
+        reasoning_log=extraction.reasoning_log,
         actors=extraction.actors,
         use_cases=extraction.use_cases,
         **metrics,
@@ -105,34 +110,29 @@ async def analyze_detail(
             detail="Input text is too short. Provide at least 10 characters of requirements.",
         )
 
-    try:
-        extraction = await ai_service.extract(raw_text)
-    except ValueError as e:
-        raise HTTPException(status_code=502, detail=f"AI processing error: {e}") from e
-    except Exception as e:
-        logger.error("Unexpected error during AI extraction: %s\n%s", e, traceback.format_exc())
-        raise HTTPException(
-            status_code=500, detail="Internal error during AI processing"
-        ) from e
-
     # AI extraction
     try:
         extraction = await ai_service.extract(raw_text)
     except ValueError as e:
-        logger.error("AI extraction failed: %s", e)
+        logger.error("AI extraction validation failed: %s", e)
         raise HTTPException(status_code=502, detail=f"AI processing error: {e}") from e
     except Exception as e:
         logger.error("Unexpected error during AI extraction: %s\n%s", e, traceback.format_exc())
+        # Provide more detail in the error response for debugging
+        error_detail = f"Internal error during AI processing: {type(e).__name__}: {str(e)}"
         raise HTTPException(
-            status_code=500, detail="Internal error during AI processing"
+            status_code=500, detail=error_detail
         ) from e
 
     # UCP calculation
     metrics, actor_breakdowns, uc_breakdowns = calculator.compute(
-        extraction.actors, extraction.use_cases
+        extraction.actors,
+        extraction.use_cases,
+        extraction.reasoning_log,
     )
 
     return DetailResponse(
+        reasoning_log=extraction.reasoning_log,
         actors=actor_breakdowns,
         use_cases=uc_breakdowns,
         **metrics,
