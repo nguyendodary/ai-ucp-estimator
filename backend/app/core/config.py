@@ -5,7 +5,7 @@ class Settings(BaseSettings):
     """Application configuration loaded from environment variables."""
 
     openai_api_key: str = ""
-    openai_model: str = "google/gemma-3-27b-it:free"
+    openai_model: str = "meta-llama/llama-3.2-3b-instruct:free"
     openai_base_url: str = "https://openrouter.ai/api/v1"
     app_name: str = "UCP Estimation API"
     app_version: str = "1.0.0"

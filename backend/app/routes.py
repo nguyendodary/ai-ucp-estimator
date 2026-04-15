@@ -1,4 +1,5 @@
 import logging
+import traceback
 from typing import Optional
 
 from fastapi import APIRouter, File, Form, HTTPException, UploadFile
@@ -109,10 +110,24 @@ async def analyze_detail(
     except ValueError as e:
         raise HTTPException(status_code=502, detail=f"AI processing error: {e}") from e
     except Exception as e:
+        logger.error("Unexpected error during AI extraction: %s\n%s", e, traceback.format_exc())
         raise HTTPException(
             status_code=500, detail="Internal error during AI processing"
         ) from e
 
+    # AI extraction
+    try:
+        extraction = await ai_service.extract(raw_text)
+    except ValueError as e:
+        logger.error("AI extraction failed: %s", e)
+        raise HTTPException(status_code=502, detail=f"AI processing error: {e}") from e
+    except Exception as e:
+        logger.error("Unexpected error during AI extraction: %s\n%s", e, traceback.format_exc())
+        raise HTTPException(
+            status_code=500, detail="Internal error during AI processing"
+        ) from e
+
+    # UCP calculation
     metrics, actor_breakdowns, uc_breakdowns = calculator.compute(
         extraction.actors, extraction.use_cases
     )

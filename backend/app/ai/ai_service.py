@@ -1,5 +1,6 @@
 import json
 import logging
+from pathlib import Path
 from typing import Any, Dict
 
 from openai import AsyncOpenAI
@@ -16,43 +17,28 @@ from app.models.schemas import AIExtractionResult
 
 logger = logging.getLogger(__name__)
 
-SYSTEM_PROMPT = """\
+SKILLS_FILE = Path(__file__).parent.parent.parent / "skills.md"
+
+SKILLS_CONTENT = SKILLS_FILE.read_text(encoding="utf-8") if SKILLS_FILE.exists() else ""
+
+SYSTEM_PROMPT = f"""\
 You are an expert software requirements analyst. Your job is to analyze software \
 requirement documents and extract actors and use cases for Use Case Point (UCP) estimation.
 
-RULES:
-1. Identify ALL actors (users, systems, devices, external services) that interact with the system.
-2. Classify each actor as "simple", "average", or "complex":
-   - simple: External system with a well-defined API (e.g., payment gateway, email service)
-   - average: External system with standard protocols (e.g., web browser, mobile app)
-   - complex: Human actors interacting through a GUI with many interactions
-3. Identify ALL use cases (functional requirements) the system must support.
-4. Count the number of transactions (major steps/interactions) for each use case.
-   - A transaction is a distinct user-system interaction (input, process, output cycle).
-   - If unsure, estimate conservatively based on the description detail.
+{SKILLS_CONTENT}
 
-IMPORTANT:
-- Return ONLY valid JSON. No markdown, no explanation, no code fences.
-- The JSON must match this exact schema:
-{"actors":[{"name":"string","type":"simple|average|complex"}],"use_cases":[{"name":"string","transactions":number}]}
-- If the input is noisy or unclear, do your best to extract meaningful actors and use cases.
-- Always return at least 1 actor and 1 use case if any system is described.
+Return ONLY valid JSON with this exact schema:
+{{"actors":[{{"name":"string","type":"simple|average|complex"}}],"use_cases":[{{"name":"string","transactions":number}}]}}
+
+Do not include any other fields. No markdown, no explanation, no code fences.
 """
 
-FEW_SHOT_EXAMPLE = """\
-Example input:
-"The system shall allow customers to browse products, add items to cart, and checkout.
-Customers must create an account before purchasing. An admin panel allows inventory management.
-The system sends email confirmations via SendGrid API. A mobile app provides push notifications."
 
-Example output:
-{"actors":[{"name":"Customer","type":"complex"},{"name":"Admin","type":"complex"},{"name":"SendGrid API","type":"simple"},{"name":"Mobile App","type":"average"}],"use_cases":[{"name":"Browse Products","transactions":3},{"name":"Add to Cart","transactions":2},{"name":"Checkout","transactions":5},{"name":"Create Account","transactions":4},{"name":"Manage Inventory","transactions":6},{"name":"Send Email Confirmation","transactions":2},{"name":"Push Notifications","transactions":2}]}
-"""
-
+FEW_SHOT_EXAMPLE = ""
 
 def _build_prompt(text: str) -> str:
-    """Build the complete prompt with system instructions, few-shot, and user input."""
-    return f"{SYSTEM_PROMPT}\n\n{FEW_SHOT_EXAMPLE}\n\n---\n\nNow analyze the following requirements:\n\n{text}"
+    """Build the complete prompt with system instructions and user input."""
+    return f"{SYSTEM_PROMPT}\n\nNow analyze the following requirements:\n\n{text}"
 
 
 def _parse_ai_response(raw: str) -> Dict[str, Any]:
