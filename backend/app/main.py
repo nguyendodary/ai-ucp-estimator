@@ -7,6 +7,7 @@ from fastapi.responses import JSONResponse
 
 from app.core.config import settings
 from app.core.logging_config import setup_logging
+from app.models.db import init_db
 from app.routes import router
 
 # Initialize logging at application startup
@@ -18,6 +19,7 @@ logger = logging.getLogger(__name__)
 async def lifespan(app: FastAPI):
     """Application startup and shutdown events."""
     logger.info("Starting %s v%s", settings.app_name, settings.app_version)
+    init_db()
     yield
     logger.info("Shutting down %s", settings.app_name)
 

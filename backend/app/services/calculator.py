@@ -47,20 +47,30 @@ USE_CASE_WEIGHTS: dict[str, int] = {
 ACTOR_FORCE_AVERAGE_NAMES = {"citizen", "customer", "end-user", "end user"}
 
 TCF_KEYWORD_RULES = {
+    "T2": {
+        "keywords": ["real-time", "real time", "sub-second", "<200ms", "sub 200ms", "performance", "instant", "fast response", "fast"],
+        "score": 5,
+        "label": "Performance Requirements",
+    },
+    "T4": {
+        "keywords": ["bigdecimal", "decimal", "precision", "financial integrity", "audit trail", "tiering logic", "machine learning", "ai", "analytics", "algorithm", "heavy calculation"],
+        "score": 5,
+        "label": "Complex Processing",
+    },
+    "T7": {
+        "keywords": ["blockchain", "external ledger", "api integration", "external system", "interoperability", "distributed ledger"],
+        "score": 5,
+        "label": "Interoperability",
+    },
+    "T10": {
+        "keywords": ["race condition", "locking", "atomic", "multi-session", "thread-safe", "concurrent", "high traffic", "millions of users", "scale"],
+        "score": 5,
+        "label": "High Concurrency/Traffic",
+    },
     "T6": {
         "keywords": ["kubernetes", "docker", "auto-scaling", "autoscaling", "microservices", "cloud-native", "cloud native"],
         "score": 5,
         "label": "Installability/Deployment Complexity",
-    },
-    "T7": {
-        "keywords": ["api integration", "external system", "legacy system", "interoperability", "fix protocol"],
-        "score": 5,
-        "label": "Interoperability",
-    },
-    "T4": {
-        "keywords": ["machine learning", "ai", "data science", "analytics", "algorithm", "heavy calculation"],
-        "score": 5,
-        "label": "Complex Processing",
     },
     "T3": {
         "keywords": ["responsive", "multi-language", "multilanguage", "i18n", "accessibility"],
@@ -68,23 +78,28 @@ TCF_KEYWORD_RULES = {
         "label": "End-User Efficiency",
     },
     "T9": {
-        "keywords": ["security", "gdpr", "encryption", "pci", "biometric"],
+        "keywords": ["security", "gdpr", "encryption", "pci", "pci-dss", "biometric", "secure login", "otp", "2fa", "two-factor"],
         "score": 5,
         "label": "Security/Compliance",
-    },
-    "T10": {
-        "keywords": ["1,000,000", "1000000", "concurrent", "peak", "high traffic"],
-        "score": 5,
-        "label": "High Concurrency/Traffic",
-    },
-    "T2": {
-        "keywords": ["real-time", "real time", "sub-second", "performance"],
-        "score": 5,
-        "label": "Performance Requirements",
     },
 }
 
 ECF_KEYWORD_RULES = {
+    "E1": {
+        "keywords": ["real-time", "real time", "financial systems", "sub-second", "performance", "instant", "fast response"],
+        "score": 5,
+        "label": "Process Familiarity/Performance Critical",
+    },
+    "E6": {
+        "keywords": ["encryption", "ledger integrity", "pci-dss", "security", "gdpr", "pci", "biometric", "secure login", "otp", "2fa"],
+        "score": 5,
+        "label": "Security Expertise/Constraints",
+    },
+    "E7": {
+        "keywords": ["high traffic", "millions of users", "concurrency", "concurrent", "scale", "peak"],
+        "score": 5,
+        "label": "High-Load Operations",
+    },
     "E8": {
         "keywords": ["remote", "distributed team", "high turnover"],
         "score": 5,
@@ -94,21 +109,6 @@ ECF_KEYWORD_RULES = {
         "keywords": ["experienced", "senior team", "expert team"],
         "score": 5,
         "label": "Analyst Capability/Experience",
-    },
-    "E6": {
-        "keywords": ["security", "gdpr", "encryption", "pci", "biometric"],
-        "score": 5,
-        "label": "Security Expertise/Constraints",
-    },
-    "E7": {
-        "keywords": ["1,000,000", "1000000", "concurrent", "peak", "high traffic"],
-        "score": 5,
-        "label": "High-Load Operations",
-    },
-    "E1": {
-        "keywords": ["real-time", "real time", "sub-second", "performance"],
-        "score": 5,
-        "label": "Process Familiarity/Performance Critical",
     },
 }
 
@@ -190,6 +190,45 @@ def calculate_uucw(use_cases: List[UseCase]) -> int:
     return sum(get_use_case_weight(uc.complexity) for uc in use_cases)
 
 
+def validate_under_estimation_guard(reasoning_log: str, use_cases: List[UseCase]) -> tuple[bool, List[str]]:
+    """
+    Validate against under-estimation guard rules from skills.md.
+    
+    If reasoning_log contains keywords for complex systems (real-time, blockchain, 
+    AI/ML, BigDecimal precision, high concurrency), then:
+    - Minimum complexity MUST be average
+    - High probability MUST be complex
+    
+    Returns (is_valid, warnings) where warnings contains use case names that violate the rules.
+    """
+    reasoning = (reasoning_log or "").lower()
+    
+    # Keywords that indicate complex systems (from updated skills.md)
+    complex_system_keywords = [
+        "real-time", "real time", "sub-200ms", "sub 200ms", "event-driven",
+        "blockchain", "ledger", "on-chain", "distributed ledger",
+        "machine learning", "ai", "analytics", "bigdecimal", "decimal", "precision",
+        "race condition", "locking", "atomic", "thread-safe", "concurrency",
+        "high traffic", "millions of users", "scale",
+    ]
+    
+    has_complex_system = any(kw in reasoning for kw in complex_system_keywords)
+    
+    if not has_complex_system:
+        return True, []
+    
+    warnings = []
+    for uc in use_cases:
+        complexity = uc.complexity.lower()
+        if complexity == "simple":
+            warnings.append(
+                f"Use case '{uc.name}' marked as 'simple' but system appears complex "
+                f"(detected complex system keywords). Consider upgrading to 'average' or 'complex'."
+            )
+    
+    return len(warnings) == 0, warnings
+
+
 def calculate_ucp(uaw: int, uucw: int, tcf: float = 1.0, ecf: float = 1.0) -> float:
     """Calculate Use Case Points."""
     uucp = uaw + uucw
@@ -230,26 +269,34 @@ def compute(
                 name=uc.name,
                 transactions=uc.transactions,
                 complexity=complexity,
+                description=uc.description,
                 weight=get_use_case_weight(complexity),
             )
         )
 
     uaw = calculate_uaw(normalized_actors)
     uucw = calculate_uucw(normalized_use_cases)
-    tcf, tcf_triggers = detect_tcf_triggers(reasoning_log)
+    tcf, _ = detect_tcf_triggers(reasoning_log)
     ecf, _ = detect_ecf_triggers(reasoning_log)
     ucp = calculate_ucp(uaw, uucw, tcf, ecf)
     effort = calculate_effort(ucp)
 
+    # Validate against under-estimation guard rules
+    is_valid, warnings = validate_under_estimation_guard(reasoning_log, normalized_use_cases)
+    if not is_valid:
+        for warning in warnings:
+            logger.warning(f"Under-estimation guard: {warning}")
+
     actor_breakdowns = [
-        ActorBreakdown(name=a.name, actor_type=a.type.value, weight=get_actor_weight(a.type))
+        ActorBreakdown(name=a.name, actor_type=a.type, weight=get_actor_weight(a.type))
         for a in normalized_actors
     ]
 
     use_case_breakdowns = [
         UseCaseBreakdown(
             name=uc.name,
-            transactions=uc.transactions,
+            description=uc.description,
+            complexity=uc.complexity,
             weight=get_use_case_weight(uc.complexity),
         )
         for uc in normalized_use_cases
@@ -258,12 +305,10 @@ def compute(
     metrics = {
         "uaw": uaw,
         "uucw": uucw,
-        "uucp": uaw + uucw,
         "tcf": tcf,
         "ecf": ecf,
         "ucp": ucp,
         "effort_hours": effort,
-        "tcf_triggers": tcf_triggers,
     }
 
     logger.info(

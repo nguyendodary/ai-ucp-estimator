@@ -41,11 +41,22 @@ class Actor(BaseModel):
 
 class UseCase(BaseModel):
     name: str = Field(..., min_length=1, description="Use case name")
+    description: str = Field("", description="Use case description")
     transactions: int = Field(
         ..., ge=1, description="Number of transactions in the use case"
     )
     complexity: str = Field("simple", description="Use case complexity (simple|average|complex)")
     weight: int = Field(0, description="Use case weight")
+
+    @field_validator("complexity", mode="before")
+    @classmethod
+    def normalize_complexity(cls, v: Any) -> str:
+        if not isinstance(v, str):
+            return "average"
+        v = v.lower().strip()
+        if v not in {"simple", "average", "complex"}:
+            return "average"
+        return v
 
     @field_validator("transactions", mode="before")
     @classmethod
@@ -139,45 +150,91 @@ class AnalysisRequest(BaseModel):
     text: str | None = Field(None, min_length=10, description="Raw requirement text")
 
 
-class AnalysisResponse(BaseModel):
-    """Response body for the /analyze endpoint."""
-
-    reasoning_log: str
-    actors: List[Actor]
-    use_cases: List[UseCase]
+class AnalysisMetrics(BaseModel):
     uaw: float
     uucw: float
-    uucp: float
     tcf: float
     ecf: float
     ucp: float
     effort_hours: float
-    tcf_triggers: List[str] = Field(default_factory=list)
 
 
 class ActorBreakdown(BaseModel):
     name: str
-    actor_type: str
+    actor_type: ActorType
     weight: int
 
 
 class UseCaseBreakdown(BaseModel):
     name: str
-    transactions: int
+    description: str
+    complexity: str
     weight: int
 
 
-class DetailResponse(BaseModel):
-    """Detailed breakdown response for frontend charts."""
+class AnalysisResponse(BaseModel):
+    """Minimal analysis response for the frontend."""
 
-    reasoning_log: str
     actors: List[ActorBreakdown]
     use_cases: List[UseCaseBreakdown]
-    uaw: float
-    uucw: float
-    uucp: float
-    tcf: float
-    ecf: float
-    ucp: float
-    effort_hours: float
-    tcf_triggers: List[str] = Field(default_factory=list)
+    metrics: AnalysisMetrics
+
+
+class ManualActorInput(BaseModel):
+    name: str = Field(..., min_length=1)
+    type: ActorType
+
+
+class ManualUseCaseInput(BaseModel):
+    name: str = Field(..., min_length=1)
+    description: str = Field("", description="Use case description")
+    complexity: str = Field(..., description="simple|average|complex")
+
+    @field_validator("complexity", mode="before")
+    @classmethod
+    def normalize_complexity(cls, v: Any) -> str:
+        if not isinstance(v, str):
+            return "average"
+        v = v.lower().strip()
+        if v not in {"simple", "average", "complex"}:
+            raise ValueError("complexity must be one of: simple, average, complex")
+        return v
+
+    transactions: int | None = Field(None, ge=1, description="Optional. Defaults to 1.")
+
+
+class ManualAnalysisRequest(BaseModel):
+    project_name: str | None = Field(None, min_length=1, description="Optional project name")
+    actors: List[ManualActorInput]
+    use_cases: List[ManualUseCaseInput]
+
+    # Ensure frontend sends at least something usable
+    @field_validator("actors")
+    @classmethod
+    def actors_not_empty(cls, v: List[ManualActorInput]) -> List[ManualActorInput]:
+        if not v:
+            raise ValueError("At least one actor is required")
+        return v
+
+    @field_validator("use_cases")
+    @classmethod
+    def use_cases_not_empty(cls, v: List[ManualUseCaseInput]) -> List[ManualUseCaseInput]:
+        if not v:
+            raise ValueError("At least one use case is required")
+        return v
+
+
+class ProjectSummary(BaseModel):
+    id: int
+    name: str
+    created_at: str
+    metrics: AnalysisMetrics
+
+
+class ProjectDetailResponse(BaseModel):
+    id: int
+    name: str
+    created_at: str
+    actors: List[ActorBreakdown]
+    use_cases: List[UseCaseBreakdown]
+    metrics: AnalysisMetrics

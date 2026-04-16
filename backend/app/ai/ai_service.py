@@ -19,37 +19,51 @@ from app.models.schemas import AIExtractionResult
 logger = logging.getLogger(__name__)
 
 SKILLS_FILE = Path(__file__).parent.parent.parent.parent / "skills.md"
-SKILLS_CONTENT = SKILLS_FILE.read_text(encoding="utf-8") if SKILLS_FILE.exists() else ""
 
-SYSTEM_PROMPT = f"""\
-{SKILLS_CONTENT}
 
-STRICT OUTPUT FORMAT - Return ONLY valid JSON matching this exact schema:
-{{
-  "reasoning_log": "Detailed explanation of transaction steps for each use case justifying complexity",
-  "actors": [
-    {{ "name": "string (actor name)", "type": "simple|average|complex (MUST use these exact lowercase values)" }}
-  ],
-  "use_cases": [
-    {{ "name": "string (use case name)", "transactions": 5 (INTEGER NOT LIST), "complexity": "simple|average|complex" }}
-  ]
-}}
+def _load_skills_content() -> str:
+    """Load skills.md fresh each time so Docker doesn't cache stale prompts."""
+    if SKILLS_FILE.exists():
+        return SKILLS_FILE.read_text(encoding="utf-8")
+    return ""
 
-IMPORTANT RULES:
-1. Actor type MUST be exactly: "simple", "average", or "complex" (lowercase, no other values)
-2. Transactions MUST be an integer (number of steps), NOT a list of steps
-3. Do NOT return weight fields. Backend will compute all weights.
-4. Do NOT return metrics fields. Backend will compute all metrics.
-5. Be "Underestimation-proof": Core business flows must have at least 5-8 transactions
-6. Output ONLY the JSON object - no markdown, no explanation, no text before or after
-"""
+SYSTEM_SUFFIX = """
+
+---
+
+## STRICT OUTPUT REQUIREMENT
+
+Return ONLY one valid JSON object — no markdown, no code fences, no explanation before or after.
+This JSON is machine-parsed; any extra text will cause a failure.
+
+The very first character must be { and the very last must be }."""
+
+def _remap_keys(data: Dict[str, Any]) -> Dict[str, Any]:
+    """Remap common alternate key names to the expected schema keys."""
+    top_level_remap = {
+        "useCases": "use_cases",
+        "use_cases": "use_cases",
+        "UseCases": "use_cases",
+        "reasoningLog": "reasoning_log",
+        "reasoning_log": "reasoning_log",
+        "ReasoningLog": "reasoning_log",
+        "Actors": "actors",
+        "actors": "actors",
+    }
+    remapped = {}
+    for k, v in data.items():
+        remapped_key = top_level_remap.get(k, k)
+        remapped[remapped_key] = v
+    return remapped
+
 
 def _is_complete_ucp_payload(data: Any) -> bool:
-    """Return True only when the object matches expected top-level UCP keys."""
+    """Return True only when the object matches expected top-level UCP keys (after remapping)."""
     if not isinstance(data, dict):
         return False
+    remapped = _remap_keys(data)
     required_keys = {"reasoning_log", "actors", "use_cases"}
-    return required_keys.issubset(data.keys())
+    return required_keys.issubset(remapped.keys())
 
 
 def _extract_balanced_json_candidates(text: str) -> list[str]:
@@ -111,18 +125,39 @@ def _parse_ai_response(raw: str) -> Dict[str, Any]:
         except json.JSONDecodeError:
             continue
         if _is_complete_ucp_payload(parsed):
-            return _normalize_ai_response(parsed)
+            remapped = _remap_keys(parsed)
+            return _normalize_ai_response(remapped)
 
     logger.error(
-        "All JSON parsing attempts failed. Cleaned response (first 500 chars): %s",
-        cleaned[:500],
+        "Failed to extract valid JSON from AI response after trying all candidates. "
+        f"Cleaned response (first 500 chars): {cleaned[:500]}"
     )
-    raise ValueError("Failed to parse AI response as JSON")
+    raise ValueError("AI response does not contain valid JSON with required fields")
+
+
+def _validate_ai_response(data: Dict[str, Any]) -> None:
+    """Validate AI response structure before normalization."""
+    if not isinstance(data, dict):
+        raise ValueError("AI response is not a dictionary")
+    
+    if "actors" not in data:
+        raise ValueError("AI response missing 'actors' field")
+    
+    if "use_cases" not in data:
+        raise ValueError("AI response missing 'use_cases' field")
+    
+    if not isinstance(data["actors"], list) or len(data["actors"]) == 0:
+        raise ValueError("AI response must have at least one actor")
+    
+    if not isinstance(data["use_cases"], list) or len(data["use_cases"]) == 0:
+        raise ValueError("AI response must have at least one use case")
 
 
 def _normalize_ai_response(data: Dict[str, Any]) -> Dict[str, Any]:
     """Normalize AI response data; backend calculator remains source of truth."""
-    
+    # Validate response structure before normalization
+    _validate_ai_response(data)
+
     # Actor type normalization mapping
     actor_type_mapping = {
         "primary": "average",
@@ -139,15 +174,72 @@ def _normalize_ai_response(data: Dict[str, Any]) -> Dict[str, Any]:
     
     # Normalize and validate actors (weight computed authoritatively in calculator.py)
     if "actors" in data and isinstance(data["actors"], list):
+        normalized_actors = []
         for actor in data["actors"]:
-            if "type" in actor and isinstance(actor["type"], str):
+            # Handle actors as plain strings (e.g., "Customer")
+            if isinstance(actor, str):
+                name = actor.strip()
+                actor_type = "average"  # default for named human actors
+                # Heuristic: guess type from name
+                name_lower = name.lower()
+                if any(kw in name_lower for kw in ["api", "gateway", "system", "service", "smtp", "sms", "email", "webhook"]):
+                    actor_type = "simple"
+                elif any(kw in name_lower for kw in ["admin", "manager", "supervisor"]):
+                    actor_type = "complex"
+                normalized_actors.append({"name": name, "type": actor_type})
+                continue
+            
+            if not isinstance(actor, dict):
+                continue
+            
+            # Remap alternate actor keys
+            if "type" not in actor and "actor_type" in actor:
+                actor["type"] = actor.pop("actor_type")
+            if "type" not in actor and "role" in actor:
+                actor["type"] = actor.pop("role")
+            if "type" not in actor and "classification" in actor:
+                actor["type"] = actor.pop("classification")
+            
+            # Default type if still missing
+            if "type" not in actor:
+                actor["type"] = "average"
+            
+            if isinstance(actor["type"], str):
                 actor_type = actor["type"].lower().strip()
                 actor["type"] = actor_type_mapping.get(actor_type, actor_type)
-                actor.pop("weight", None)
+            actor.pop("weight", None)
+            actor.pop("actors", None)  # Remove stray nested actors
+            normalized_actors.append(actor)
+        data["actors"] = normalized_actors
     
-    # Normalize use cases - handle transactions as list
+    # Normalize use cases
     if "use_cases" in data and isinstance(data["use_cases"], list):
+        normalized_ucs = []
         for uc in data["use_cases"]:
+            if not isinstance(uc, dict):
+                continue
+            
+            # Remap alternate field names
+            if "transactions" not in uc and "transaction_count" in uc:
+                uc["transactions"] = uc.pop("transaction_count")
+            if "transactions" not in uc and "steps" in uc:
+                uc["transactions"] = uc.pop("steps")
+            if "transactions" not in uc and "transactionCount" in uc:
+                uc["transactions"] = uc.pop("transactionCount")
+            
+            # Remap estimatedComplexity → complexity
+            if "complexity" not in uc and "estimatedComplexity" in uc:
+                val = uc.pop("estimatedComplexity")
+                # If it's a weight number (5/10/15), map to complexity string
+                if isinstance(val, (int, float)):
+                    weight_to_complexity = {5: "simple", 10: "average", 15: "complex"}
+                    uc["complexity"] = weight_to_complexity.get(val, "average")
+                else:
+                    uc["complexity"] = str(val).lower()
+            
+            if "complexity" not in uc and "complexity_level" in uc:
+                uc["complexity"] = uc.pop("complexity_level")
+            
             # Handle transactions as list - count the steps
             if "transactions" in uc:
                 if isinstance(uc["transactions"], list):
@@ -158,9 +250,22 @@ def _normalize_ai_response(data: Dict[str, Any]) -> Dict[str, Any]:
                     except ValueError:
                         uc["transactions"] = 1
             
+            # Default transactions if missing
+            if "transactions" not in uc:
+                # Infer from complexity if available
+                complexity = uc.get("complexity", "average")
+                if isinstance(complexity, str):
+                    complexity = complexity.lower()
+                default_transactions = {"simple": 3, "average": 5, "complex": 8}
+                uc["transactions"] = default_transactions.get(complexity, 5)
+            
             # Determine complexity based on transactions if missing/invalid
             transactions = uc.get("transactions", 1)
-            complexity = uc.get("complexity", "simple").lower()
+            complexity = uc.get("complexity", "average")
+            if isinstance(complexity, str):
+                complexity = complexity.lower().strip()
+            else:
+                complexity = "average"
 
             if complexity not in {"simple", "average", "complex"}:
                 if transactions <= 3:
@@ -171,7 +276,15 @@ def _normalize_ai_response(data: Dict[str, Any]) -> Dict[str, Any]:
                     complexity = "complex"
                 uc["complexity"] = complexity
             uc.pop("weight", None)
+            uc.pop("actors", None)  # Remove stray nested actors in use cases
+            uc.pop("estimatedComplexity", None)  # Clean up if still present
+            normalized_ucs.append(uc)
+        data["use_cases"] = normalized_ucs
 
+    # Ensure reasoning_log exists
+    if "reasoning_log" not in data or not data["reasoning_log"]:
+        data["reasoning_log"] = "Auto-generated: reasoning log was missing from AI response."
+    
     # Metrics from AI are optional and ignored by backend calculator.
     if "metrics" not in data or not isinstance(data.get("metrics"), dict):
         data["metrics"] = {}
@@ -180,18 +293,18 @@ def _normalize_ai_response(data: Dict[str, Any]) -> Dict[str, Any]:
 
 
 def _build_prompt(text: str) -> str:
-    """Build the complete prompt with system instructions and user input."""
-    return f"{SYSTEM_PROMPT}\n\nNow analyze the following requirements:\n\n{text}"
+    """Build the user message. System instructions are passed as the system role, not repeated here."""
+    return f"Analyze the following software requirements and return UCP estimation JSON:\n\n{text}"
 
 
 def _build_repair_prompt(text: str, broken_response: str) -> str:
     """Build a strict retry prompt that forces JSON-only output."""
     return (
-        f"{SYSTEM_PROMPT}\n\n"
         "Your previous answer was NOT valid JSON and cannot be parsed.\n"
         "Return ONLY ONE valid JSON object with these top-level keys exactly:\n"
         '["reasoning_log","actors","use_cases"]\n'
-        "No markdown, no <think> tags, no commentary.\n\n"
+        "No markdown, no <arg_key>tags, no commentary.\n"
+        "The very first character must be { and the very last must be }.\n\n"
         "Original requirements:\n"
         f"{text}\n\n"
         "Invalid previous response (for correction):\n"
@@ -208,27 +321,40 @@ class AIService:
             base_url=settings.openai_base_url,
         )
 
-    @retry(
-        stop=stop_after_attempt(3),
-        wait=wait_exponential(multiplier=1, min=2, max=15),
-        retry=retry_if_exception_type(Exception),
-        reraise=True,
-    )
-    async def _call_openai(self, prompt: str) -> str:
-        """Call OpenAI API with retry logic for maximum accuracy."""
+    async def _call_openai(self, prompt: str, model: str | None = None) -> str:
+        """Call OpenAI API with the specified model."""
         response = await self.client.chat.completions.create(
-            model=settings.openai_model,
+            model=model or settings.openai_model,
             messages=[
-                {"role": "system", "content": SYSTEM_PROMPT},
+                {"role": "system", "content": _load_skills_content() + SYSTEM_SUFFIX},
                 {"role": "user", "content": prompt},
             ],
             temperature=0.1,
-            max_completion_tokens=4096,
+            max_completion_tokens=8192,
         )
         content = response.choices[0].message.content
         if content is None or not content.strip():
             raise ValueError("OpenAI returned empty response")
         return content
+
+    async def _call_openai_with_fallback(self, prompt: str) -> str:
+        """Call OpenAI API with fallback model support."""
+        models_to_try = [settings.openai_model] + settings.fallback_models
+        last_error = None
+
+        for idx, model in enumerate(models_to_try):
+            try:
+                logger.info(f"Attempting model {idx + 1}/{len(models_to_try)}: {model}")
+                return await self._call_openai(prompt, model)
+            except Exception as e:
+                last_error = e
+                logger.warning(f"Model {model} failed: {e}")
+                if idx < len(models_to_try) - 1:
+                    logger.info(f"Falling back to next model...")
+                else:
+                    logger.error(f"All models failed. Last error: {e}")
+
+        raise last_error or Exception("All models failed")
 
     async def extract(self, text: str) -> AIExtractionResult:
         """
@@ -242,8 +368,8 @@ class AIService:
             return AIExtractionResult(**cached)
 
         prompt = _build_prompt(text)
-        logger.info("Calling OpenAI API for extraction")
-        raw_response = await self._call_openai(prompt)
+        logger.info("Calling OpenAI API for extraction with fallback support")
+        raw_response = await self._call_openai_with_fallback(prompt)
 
         try:
             data = _parse_ai_response(raw_response)
@@ -254,7 +380,7 @@ class AIService:
                 raw_response[:500],
             )
             repair_prompt = _build_repair_prompt(text, raw_response)
-            repaired_raw_response = await self._call_openai(repair_prompt)
+            repaired_raw_response = await self._call_openai_with_fallback(repair_prompt)
             try:
                 data = _parse_ai_response(repaired_raw_response)
             except (json.JSONDecodeError, KeyError, ValueError) as repair_error:

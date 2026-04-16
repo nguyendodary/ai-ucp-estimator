@@ -9,11 +9,18 @@ class Settings(BaseSettings):
     """Application configuration loaded from environment variables."""
 
     openai_api_key: str = ""
-    openai_model: str = "qwen/qwen3-32b"
-    openai_base_url: str = "https://api.groq.com/openai/v1"
+    openai_model: str = "google/gemma-4-26b-a4b-it:free"
+    openai_base_url: str = "https://openrouter.ai/api/v1"
+    # Fallback models in order of preference
+    fallback_models: list[str] = [
+        "google/gemma-3-12b:free",
+        "openrouter/free",
+    ]
     app_name: str = "UCP Estimation API"
     app_version: str = "1.0.0"
     log_level: str = "INFO"
+    database_url: str = "sqlite:///./data/ucp_estimation.db"
+    db_echo: bool = False
 
     class Config:
         env_file = ".env"

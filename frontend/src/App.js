@@ -1,69 +1,111 @@
-import React, { useState } from 'react';
-import './App.css';
-import FileUpload from './components/FileUpload';
-import TextInput from './components/TextInput';
-import Dashboard from './components/Dashboard';
-import ChartPanel from './components/ChartPanel';
-import BreakdownTable from './components/BreakdownTable';
-import LoadingSpinner from './components/LoadingSpinner';
+import React, { useEffect, useMemo, useState } from 'react';
+
+import Sidebar from './components/layout/Sidebar';
+import Topbar from './components/layout/Topbar';
+import DashboardPage from './pages/DashboardPage';
+import NewAnalysisPage from './pages/NewAnalysisPage';
+import HistoryPage from './pages/HistoryPage';
+
+const PAGE_KEYS = {
+  dashboard: 'dashboard',
+  new: 'new',
+  history: 'history',
+};
+
+function useDarkMode() {
+  const [isDark, setIsDark] = useState(false);
+
+  useEffect(() => {
+    const stored = localStorage.getItem('ucp_estimator_dark');
+    if (stored === 'true') {
+      setIsDark(true);
+      return;
+    }
+    if (stored === 'false') {
+      setIsDark(false);
+      return;
+    }
+    const prefersDark = window.matchMedia?.('(prefers-color-scheme: dark)')?.matches;
+    setIsDark(!!prefersDark);
+  }, []);
+
+  useEffect(() => {
+    document.documentElement.classList.toggle('dark', isDark);
+    localStorage.setItem('ucp_estimator_dark', String(isDark));
+  }, [isDark]);
+
+  return { isDark, setIsDark };
+}
 
 function App() {
-  const [result, setResult] = useState(null);
-  const [loading, setLoading] = useState(false);
-  const [error, setError] = useState(null);
+  const [activeKey, setActiveKey] = useState(PAGE_KEYS.dashboard);
+  const [mobileSidebarOpen, setMobileSidebarOpen] = useState(false);
+  const [sidebarCollapsed, setSidebarCollapsed] = useState(false);
 
-  const handleResult = (data) => {
-    setResult(data);
-    setError(null);
-  };
+  const { isDark, setIsDark } = useDarkMode();
 
-  const handleError = (message) => {
-    setError(message);
-    setResult(null);
-  };
+  const title = useMemo(() => {
+    if (activeKey === PAGE_KEYS.dashboard) return 'Dashboard';
+    if (activeKey === PAGE_KEYS.new) return 'New Analysis';
+    return 'History';
+  }, [activeKey]);
 
   return (
-    <div className="app">
-      <header className="app-header">
-        <h1>AI-Powered UCP Estimation</h1>
-        <p>Upload or paste software requirements to get Use Case Point estimates</p>
-      </header>
+    <div className="min-h-screen bg-zinc-50 dark:bg-zinc-950">
+      <div className="flex">
+        <Sidebar
+          activeKey={activeKey}
+          collapsed={sidebarCollapsed}
+          onNavigate={(key) => {
+            setActiveKey(key);
+            setMobileSidebarOpen(false);
+          }}
+        />
 
-      <main className="app-main">
-        <div className="input-panel">
-          <FileUpload
-            onResult={handleResult}
-            onError={handleError}
-            setLoading={setLoading}
-          />
-          <div className="divider">
-            <span>OR</span>
+        {/* Mobile sidebar */}
+        {mobileSidebarOpen ? (
+          <div className="lg:hidden fixed inset-0 z-40">
+            <button
+              type="button"
+              className="absolute inset-0 bg-black/40"
+              onClick={() => setMobileSidebarOpen(false)}
+              aria-label="Close sidebar"
+            />
+            <div className="absolute left-0 top-0 bottom-0 w-[280px] bg-white/90 dark:bg-zinc-950/90 backdrop-blur border-r border-zinc-200/70 dark:border-zinc-800/70 overflow-auto">
+              <Sidebar
+                activeKey={activeKey}
+                collapsed={sidebarCollapsed}
+                onNavigate={(key) => {
+                  setActiveKey(key);
+                  setMobileSidebarOpen(false);
+                }}
+              />
+            </div>
           </div>
-          <TextInput
-            onResult={handleResult}
-            onError={handleError}
-            setLoading={setLoading}
+        ) : null}
+
+        <div className="flex-1 flex flex-col">
+          <Topbar
+            title={title}
+            isDark={isDark}
+            onToggleDark={() => setIsDark(!isDark)}
+            onOpenSidebar={() => setMobileSidebarOpen(true)}
+            onNewAnalysis={() => setActiveKey(PAGE_KEYS.new)}
+            showSearch={false}
+            sidebarCollapsed={sidebarCollapsed}
+            onToggleSidebarCollapsed={() => setSidebarCollapsed((v) => !v)}
           />
+
+          <main className="flex-1 px-4 sm:px-6 pb-10 pt-6">
+            {activeKey === PAGE_KEYS.dashboard ? <DashboardPage onNewAnalysis={() => setActiveKey(PAGE_KEYS.new)} /> : null}
+            {activeKey === PAGE_KEYS.new ? <NewAnalysisPage onNavigateHistory={() => setActiveKey(PAGE_KEYS.history)} /> : null}
+            {activeKey === PAGE_KEYS.history ? <HistoryPage /> : null}
+          </main>
         </div>
-
-        {loading && <LoadingSpinner />}
-
-        {error && (
-          <div className="error-banner">
-            <strong>Error:</strong> {error}
-          </div>
-        )}
-
-        {result && (
-          <div className="results-panel">
-            <Dashboard data={result} />
-            <BreakdownTable data={result} />
-            <ChartPanel data={result} />
-          </div>
-        )}
-      </main>
+      </div>
     </div>
   );
 }
 
 export default App;
+
