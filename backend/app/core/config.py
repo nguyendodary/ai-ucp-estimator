@@ -11,10 +11,17 @@ class Settings(BaseSettings):
     openai_api_key: str = ""
     openai_model: str = "google/gemma-4-26b-a4b-it:free"
     openai_base_url: str = "https://openrouter.ai/api/v1"
-    # Fallback models in order of preference
+    # Fallback models — deliberately span different provider chains so that
+    # a single upstream outage (e.g. OpenInference down) doesn't kill all options.
+    # Tier-1: own-infrastructure providers (Moonshot, Z.ai, MiniMax)
+    # Tier-2: broader free-tier alternatives
     fallback_models: list[str] = [
-        "google/gemma-3-12b:free",
-        "openrouter/free",
+        "moonshotai/kimi-k2.5",  # Moonshot AI — own infra, 256k ctx, fully free
+        "z-ai/glm-4.5-air:free",  # Z.ai — own infra, 131k ctx, fully free
+        "minimax/minimax-m2.5:free",  # MiniMax — own infra, 196k ctx, fully free
+        "meta-llama/llama-3.3-70b-instruct:free",  # Meta / multiple hosts, 65k ctx
+        "nousresearch/hermes-3-llama-3.1-405b:free",  # Nous Research, 131k ctx
+        "google/gemma-4-31b-it:free",  # Google — same family as primary, 262k ctx
     ]
     app_name: str = "UCP Estimation API"
     app_version: str = "1.0.0"

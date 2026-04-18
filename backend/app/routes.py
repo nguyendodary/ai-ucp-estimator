@@ -130,6 +130,7 @@ def export_project_pdf(project_id: int):
             metrics={
                 "uaw": detail.metrics.uaw,
                 "uucw": detail.metrics.uucw,
+                "uucp": detail.metrics.uucp,
                 "tcf": detail.metrics.tcf,
                 "ecf": detail.metrics.ecf,
                 "ucp": detail.metrics.ucp,

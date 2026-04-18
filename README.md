@@ -6,7 +6,7 @@ AI-powered Use Case Point (UCP) estimation for software requirements. Upload a r
 
 - **File Parsing**: Support for PDF, DOCX, and TXT requirement documents
 - **AI-Powered Extraction**: LLM-based extraction of actors and use cases from requirements
-- **UCP Calculation**: Complete UCP metrics including `UAW`, `UUCW`, `TCF`, `ECF`, `UCP`, and `effort_hours`
+- **UCP Calculation**: Complete UCP metrics including `UAW`, `UUCW`, `UUCP`, `TCF`, `ECF`, `UCP`, and `effort_hours`
 - **Semantic Inference**: Auto-detection of technical and environmental complexity factors with semantic keyword matching
 - **Under-Estimation Guard**: Validation to prevent under-estimation of complex systems (blockchain, AI/ML, real-time, high concurrency)
 - **Modern UI**: Beautiful, responsive interface built with React, TailwindCSS, and shadcn/ui
@@ -112,7 +112,7 @@ Export a project analysis as a PDF report with project name.
 From the result dashboard or project history, click **Export PDF Report** to generate an A4 report containing:
 
 1. Project title with exact project name
-2. Summary metrics table (UAW, UUCW, TCF, ECF, UCP, Effort Hours)
+2. Summary metrics table (UAW, UUCW, UUCP, TCF, ECF, UCP, Effort Hours)
 3. Breakdown tables for actors and use cases
 4. Creation timestamp
 

@@ -10,6 +10,8 @@ from sqlalchemy import (
     Text,
     create_engine,
     func,
+    inspect,
+    text,
 )
 from sqlalchemy.orm import declarative_base, relationship, sessionmaker
 
@@ -110,6 +112,7 @@ class AnalysisResult(Base):
 
     uaw = Column(Float, nullable=False)
     uucw = Column(Float, nullable=False)
+    uucp = Column(Float, nullable=False)
     tcf = Column(Float, nullable=False)
     ecf = Column(Float, nullable=False)
     ucp = Column(Float, nullable=False)
@@ -123,4 +126,33 @@ class AnalysisResult(Base):
 def init_db() -> None:
     _ensure_sqlite_dir(settings.database_url)
     Base.metadata.create_all(bind=engine)
+    _ensure_analysis_results_uucp_column()
+
+
+def _ensure_analysis_results_uucp_column() -> None:
+    """
+    Lightweight schema migration for legacy databases created before `uucp` existed.
+    """
+    inspector = inspect(engine)
+    if "analysis_results" not in inspector.get_table_names():
+        return
+
+    columns = {c["name"] for c in inspector.get_columns("analysis_results")}
+    if "uucp" in columns:
+        return
+
+    with engine.begin() as conn:
+        conn.execute(
+            text(
+                "ALTER TABLE analysis_results "
+                "ADD COLUMN uucp FLOAT NOT NULL DEFAULT 0"
+            )
+        )
+        conn.execute(
+            text(
+                "UPDATE analysis_results "
+                "SET uucp = COALESCE(uaw, 0) + COALESCE(uucw, 0) "
+                "WHERE uucp = 0"
+            )
+        )
 

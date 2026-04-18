@@ -1,29 +1,50 @@
-import React, { useEffect, useMemo, useState } from 'react';
-import { BriefcaseBusiness, Download, Layers, Shield, Users } from 'lucide-react';
+import React, { useEffect, useMemo, useState } from "react";
+import {
+  BriefcaseBusiness,
+  Download,
+  Layers,
+  Shield,
+  Users,
+} from "lucide-react";
 
-import { getProjectDetail, listProjects, exportProjectPdf } from '../api';
-import StatCard from '../components/cards/StatCard';
-import DataTable from '../components/tables/DataTable';
-import WeightsCharts from '../components/charts/WeightsCharts';
-import { Button } from '../components/ui/button';
-import { Card, CardContent, CardHeader, CardTitle } from '../components/ui/card';
+import { getProjectDetail, listProjects, exportProjectPdf } from "../api";
+import StatCard from "../components/cards/StatCard";
+import DataTable from "../components/tables/DataTable";
+import WeightsCharts from "../components/charts/WeightsCharts";
+import UcpBreakdownCard from "../components/cards/UcpBreakdownCard";
+import { Button } from "../components/ui/button";
+import {
+  Card,
+  CardContent,
+  CardHeader,
+  CardTitle,
+} from "../components/ui/card";
 
 function Skeleton() {
   return (
     <div className="space-y-6 animate-pulse">
-      <div className="grid grid-cols-2 sm:grid-cols-3 lg:grid-cols-6 gap-4">
-        {Array.from({ length: 6 }).map((_, i) => (
-          <div key={i} className="rounded-2xl border border-zinc-200/70 dark:border-zinc-800/70 bg-white/60 dark:bg-zinc-900/30 p-5 h-[92px]" />
+      <div className="grid grid-cols-2 sm:grid-cols-3 lg:grid-cols-7 gap-4">
+        {Array.from({ length: 7 }).map((_, i) => (
+          <div
+            key={i}
+            className="rounded-2xl border border-zinc-200/70 dark:border-zinc-800/70 bg-white/60 dark:bg-zinc-900/30 p-5 h-[92px]"
+          />
         ))}
       </div>
       <div className="grid grid-cols-1 xl:grid-cols-2 gap-6">
         {Array.from({ length: 2 }).map((_, i) => (
-          <div key={i} className="rounded-2xl border border-zinc-200/70 dark:border-zinc-800/70 bg-white/60 dark:bg-zinc-900/30 p-6 h-[380px]" />
+          <div
+            key={i}
+            className="rounded-2xl border border-zinc-200/70 dark:border-zinc-800/70 bg-white/60 dark:bg-zinc-900/30 p-6 h-[380px]"
+          />
         ))}
       </div>
       <div className="grid grid-cols-1 lg:grid-cols-2 gap-6">
         {Array.from({ length: 2 }).map((_, i) => (
-          <div key={i} className="rounded-2xl border border-zinc-200/70 dark:border-zinc-800/70 bg-white/60 dark:bg-zinc-900/30 p-6 h-[320px]" />
+          <div
+            key={i}
+            className="rounded-2xl border border-zinc-200/70 dark:border-zinc-800/70 bg-white/60 dark:bg-zinc-900/30 p-6 h-[320px]"
+          />
         ))}
       </div>
     </div>
@@ -32,7 +53,7 @@ function Skeleton() {
 
 export default function DashboardPage({ onNewAnalysis }) {
   const [loading, setLoading] = useState(true);
-  const [error, setError] = useState('');
+  const [error, setError] = useState("");
   const [latest, setLatest] = useState(null);
 
   useEffect(() => {
@@ -40,7 +61,7 @@ export default function DashboardPage({ onNewAnalysis }) {
     (async () => {
       try {
         setLoading(true);
-        setError('');
+        setError("");
         const projects = await listProjects();
         if (!mounted) return;
         if (!projects || projects.length === 0) {
@@ -52,7 +73,9 @@ export default function DashboardPage({ onNewAnalysis }) {
         setLatest(detail);
       } catch (e) {
         if (!mounted) return;
-        setError(e?.response?.data?.detail || e?.message || 'Failed to load history.');
+        setError(
+          e?.response?.data?.detail || e?.message || "Failed to load history.",
+        );
       } finally {
         if (!mounted) return;
         setLoading(false);
@@ -64,9 +87,9 @@ export default function DashboardPage({ onNewAnalysis }) {
   }, []);
 
   const formatMetric = (v, decimals) => {
-    if (v === null || v === undefined) return '—';
+    if (v === null || v === undefined) return "—";
     const num = Number(v);
-    if (Number.isNaN(num)) return '—';
+    if (Number.isNaN(num)) return "—";
     return num.toFixed(decimals);
   };
 
@@ -80,7 +103,7 @@ export default function DashboardPage({ onNewAnalysis }) {
     try {
       await exportProjectPdf(latest.id);
     } catch (e) {
-      console.error('Failed to export PDF:', e);
+      console.error("Failed to export PDF:", e);
     }
   };
 
@@ -91,7 +114,12 @@ export default function DashboardPage({ onNewAnalysis }) {
           Analytics Snapshot
         </h2>
         {latest ? (
-          <Button variant="outline" size="md" onClick={handleExportPdf} className="hidden sm:inline-flex">
+          <Button
+            variant="outline"
+            size="md"
+            onClick={handleExportPdf}
+            className="hidden sm:inline-flex"
+          >
             <Download className="h-4 w-4" />
             Export PDF
           </Button>
@@ -110,7 +138,9 @@ export default function DashboardPage({ onNewAnalysis }) {
             <CardHeader>
               <div className="flex items-start justify-between gap-4">
                 <div>
-                  <CardTitle className="text-base">{header}</CardTitle>
+                  <CardTitle className="text-base">
+                    {latest.name || header}
+                  </CardTitle>
                   <p className="text-sm text-zinc-500 dark:text-zinc-400 mt-1">
                     Created {latest.created_at}
                   </p>
@@ -118,17 +148,43 @@ export default function DashboardPage({ onNewAnalysis }) {
               </div>
             </CardHeader>
             <CardContent className="pt-0">
-              <div className="grid grid-cols-2 sm:grid-cols-3 lg:grid-cols-6 gap-4">
-                <StatCard label="UAW" value={latest.metrics.uaw} icon={Users} format={(v) => formatMetric(v, 1)} />
-                <StatCard label="UUCW" value={latest.metrics.uucw} icon={Layers} format={(v) => formatMetric(v, 1)} />
-                <StatCard label="TCF" value={latest.metrics.tcf} icon={Shield} format={(v) => formatMetric(v, 3)} />
+              <div className="grid grid-cols-2 sm:grid-cols-3 lg:grid-cols-7 gap-4">
+                <StatCard
+                  label="UAW"
+                  value={latest.metrics.uaw}
+                  icon={Users}
+                  format={(v) => formatMetric(v, 0)}
+                />
+                <StatCard
+                  label="UUCW"
+                  value={latest.metrics.uucw}
+                  icon={Layers}
+                  format={(v) => formatMetric(v, 0)}
+                />
+                <StatCard
+                  label="UUCP"
+                  value={latest.metrics.uucp}
+                  icon={Layers}
+                  format={(v) => formatMetric(v, 0)}
+                />
+                <StatCard
+                  label="TCF"
+                  value={latest.metrics.tcf}
+                  icon={Shield}
+                  format={(v) => formatMetric(v, 3)}
+                />
                 <StatCard
                   label="ECF"
                   value={latest.metrics.ecf}
                   icon={BriefcaseBusiness}
                   format={(v) => formatMetric(v, 3)}
                 />
-                <StatCard label="UCP" value={latest.metrics.ucp} icon={Layers} format={(v) => formatMetric(v, 2)} />
+                <StatCard
+                  label="UCP"
+                  value={latest.metrics.ucp}
+                  icon={Layers}
+                  format={(v) => formatMetric(v, 2)}
+                />
                 <StatCard
                   label="Effort Hours"
                   value={latest.metrics.effort_hours}
@@ -141,6 +197,8 @@ export default function DashboardPage({ onNewAnalysis }) {
           </Card>
 
           <WeightsCharts actors={latest.actors} useCases={latest.use_cases} />
+
+          <UcpBreakdownCard metrics={latest.metrics} />
 
           <div className="grid grid-cols-1 lg:grid-cols-2 gap-6">
             <DataTable variant="actors" rows={latest.actors} />
@@ -169,4 +227,3 @@ export default function DashboardPage({ onNewAnalysis }) {
     </div>
   );
 }
-

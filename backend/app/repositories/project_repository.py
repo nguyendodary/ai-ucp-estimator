@@ -46,6 +46,7 @@ def create_project_with_analysis(
             project_id=project.id,
             uaw=metrics.uaw,
             uucw=metrics.uucw,
+            uucp=metrics.uucp,
             tcf=metrics.tcf,
             ecf=metrics.ecf,
             ucp=metrics.ucp,
@@ -77,6 +78,7 @@ def list_projects(*, session: Session) -> List[ProjectSummary]:
                 metrics=AnalysisMetrics(
                     uaw=p.analysis_result.uaw,
                     uucw=p.analysis_result.uucw,
+                    uucp=p.analysis_result.uucp,
                     tcf=p.analysis_result.tcf,
                     ecf=p.analysis_result.ecf,
                     ucp=p.analysis_result.ucp,
@@ -111,6 +113,7 @@ def get_project_detail(*, project_id: int, session: Session) -> Optional[Project
     metrics = AnalysisMetrics(
         uaw=project.analysis_result.uaw,
         uucw=project.analysis_result.uucw,
+        uucp=project.analysis_result.uucp,
         tcf=project.analysis_result.tcf,
         ecf=project.analysis_result.ecf,
         ucp=project.analysis_result.ucp,

@@ -24,15 +24,15 @@ class Actor(BaseModel):
         v = v.lower().strip()
         # Map common non-standard terms to valid types
         mapping = {
-            "primary": "average",      # Normal human users (Customer, User)
-            "internal": "average",     # Internal users
-            "external": "simple",      # External systems (Email, Notification)
-            "third-party": "simple",   # Third party integrations
-            "admin": "complex",        # Admin/Manager with control privileges
-            "system": "complex",       # Complex system integrations
-            "user": "average",         # Standard user
-            "customer": "average",     # Customer
-            "guest": "simple",         # Guest user
+            "primary": "average",  # Normal human users (Customer, User)
+            "internal": "average",  # Internal users
+            "external": "simple",  # External systems (Email, Notification)
+            "third-party": "simple",  # Third party integrations
+            "admin": "complex",  # Admin/Manager with control privileges
+            "system": "complex",  # Complex system integrations
+            "user": "average",  # Standard user
+            "customer": "average",  # Customer
+            "guest": "simple",  # Guest user
         }
         if v in mapping:
             return mapping[v]
@@ -45,7 +45,9 @@ class UseCase(BaseModel):
     transactions: int = Field(
         ..., ge=1, description="Number of transactions in the use case"
     )
-    complexity: str = Field("simple", description="Use case complexity (simple|average|complex)")
+    complexity: str = Field(
+        "simple", description="Use case complexity (simple|average|complex)"
+    )
     weight: int = Field(0, description="Use case weight")
 
     @field_validator("complexity", mode="before")
@@ -107,7 +109,9 @@ class AIExtractionMetrics(BaseModel):
 class AIExtractionResult(BaseModel):
     """Structured result from AI extraction."""
 
-    reasoning_log: Union[str, List[Any]] = Field(..., description="Chain-of-thought reasoning for each Use Case")
+    reasoning_log: Union[str, List[Any]] = Field(
+        ..., description="Chain-of-thought reasoning for each Use Case"
+    )
     actors: List[Actor] = Field(default_factory=list)
     use_cases: List[UseCase] = Field(default_factory=list)
     metrics: AIExtractionMetrics = Field(
@@ -153,6 +157,7 @@ class AnalysisRequest(BaseModel):
 class AnalysisMetrics(BaseModel):
     uaw: float
     uucw: float
+    uucp: float
     tcf: float
     ecf: float
     ucp: float
@@ -175,6 +180,7 @@ class UseCaseBreakdown(BaseModel):
 class AnalysisResponse(BaseModel):
     """Minimal analysis response for the frontend."""
 
+    project_name: str | None = None
     actors: List[ActorBreakdown]
     use_cases: List[UseCaseBreakdown]
     metrics: AnalysisMetrics
@@ -204,7 +210,9 @@ class ManualUseCaseInput(BaseModel):
 
 
 class ManualAnalysisRequest(BaseModel):
-    project_name: str | None = Field(None, min_length=1, description="Optional project name")
+    project_name: str | None = Field(
+        None, min_length=1, description="Optional project name"
+    )
     actors: List[ManualActorInput]
     use_cases: List[ManualUseCaseInput]
 
@@ -218,7 +226,9 @@ class ManualAnalysisRequest(BaseModel):
 
     @field_validator("use_cases")
     @classmethod
-    def use_cases_not_empty(cls, v: List[ManualUseCaseInput]) -> List[ManualUseCaseInput]:
+    def use_cases_not_empty(
+        cls, v: List[ManualUseCaseInput]
+    ) -> List[ManualUseCaseInput]:
         if not v:
             raise ValueError("At least one use case is required")
         return v

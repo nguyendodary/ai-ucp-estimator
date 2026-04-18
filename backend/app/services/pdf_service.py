@@ -92,6 +92,7 @@ class PDFService:
             ["Metric", "Value"],
             ["UAW", f"{metrics.get('uaw', 0):.1f}"],
             ["UUCW", f"{metrics.get('uucw', 0):.1f}"],
+            ["UUCP", f"{metrics.get('uucp', metrics.get('uaw', 0) + metrics.get('uucw', 0)):.1f}"],
             ["TCF", f"{metrics.get('tcf', 0):.3f}"],
             ["ECF", f"{metrics.get('ecf', 0):.3f}"],
             ["UCP", f"{metrics.get('ucp', 0):.2f}"],
