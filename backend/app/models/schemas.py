@@ -2,7 +2,9 @@ import json
 from enum import Enum
 from typing import Any, List, Union
 
-from pydantic import BaseModel, Field, field_validator
+from pydantic import BaseModel, ConfigDict, Field, field_validator
+
+# ── Enums ────────────────────────────────────────────────────────────────────
 
 
 class ActorType(str, Enum):
@@ -11,44 +13,40 @@ class ActorType(str, Enum):
     complex = "complex"
 
 
+# ── Internal AI-layer schemas (not exposed in Swagger responses) ─────────────
+
+
 class Actor(BaseModel):
     name: str = Field(..., min_length=1, description="Actor name")
     type: ActorType = Field(..., description="Actor complexity classification")
-    weight: int = Field(0, description="Actor weight")
+    weight: int = Field(0, description="Computed weight (1 / 2 / 3)")
 
     @field_validator("type", mode="before")
     @classmethod
-    def normalize_actor_type(cls, v: Any) -> str:
+    def normalize_actor_type(cls, v: Any) -> Any:
         if not isinstance(v, str):
             return v
         v = v.lower().strip()
-        # Map common non-standard terms to valid types
         mapping = {
-            "primary": "average",  # Normal human users (Customer, User)
-            "internal": "average",  # Internal users
-            "external": "simple",  # External systems (Email, Notification)
-            "third-party": "simple",  # Third party integrations
-            "admin": "complex",  # Admin/Manager with control privileges
-            "system": "complex",  # Complex system integrations
-            "user": "average",  # Standard user
-            "customer": "average",  # Customer
-            "guest": "simple",  # Guest user
+            "primary": "average",
+            "internal": "average",
+            "external": "simple",
+            "third-party": "simple",
+            "admin": "complex",
+            "system": "complex",
+            "user": "average",
+            "customer": "average",
+            "guest": "simple",
         }
-        if v in mapping:
-            return mapping[v]
-        return v
+        return mapping.get(v, v)
 
 
 class UseCase(BaseModel):
     name: str = Field(..., min_length=1, description="Use case name")
     description: str = Field("", description="Use case description")
-    transactions: int = Field(
-        ..., ge=1, description="Number of transactions in the use case"
-    )
-    complexity: str = Field(
-        "simple", description="Use case complexity (simple|average|complex)"
-    )
-    weight: int = Field(0, description="Use case weight")
+    transactions: int = Field(..., ge=1, description="Number of atomic transactions")
+    complexity: str = Field("simple", description="simple | average | complex")
+    weight: int = Field(0, description="Computed weight (5 / 10 / 15)")
 
     @field_validator("complexity", mode="before")
     @classmethod
@@ -56,21 +54,17 @@ class UseCase(BaseModel):
         if not isinstance(v, str):
             return "average"
         v = v.lower().strip()
-        if v not in {"simple", "average", "complex"}:
-            return "average"
-        return v
+        return v if v in {"simple", "average", "complex"} else "average"
 
     @field_validator("transactions", mode="before")
     @classmethod
     def handle_transaction_list(cls, v: Any) -> int:
         if isinstance(v, list):
-            # If AI sends a list of steps, the count of steps is the transaction count
             return len(v)
         if isinstance(v, str):
             try:
                 return int(v)
             except ValueError:
-                # If it's a string that's not a number, maybe it's a single step?
                 return 1
         return v
 
@@ -88,11 +82,8 @@ class AIExtractionMetrics(BaseModel):
     def compute_uucp_if_missing(cls, v: Any, info) -> float:
         if v is not None and v != 0:
             return v
-        # If uucp is missing or zero, compute it from uaw + uucw
         data = info.data
-        uaw = data.get("uaw", 0)
-        uucw = data.get("uucw", 0)
-        return uaw + uucw
+        return data.get("uaw", 0) + data.get("uucw", 0)
 
     @field_validator("ucp", mode="before")
     @classmethod
@@ -100,36 +91,27 @@ class AIExtractionMetrics(BaseModel):
         if v is not None and v != 0:
             return v
         data = info.data
-        uucp = data.get("uucp", 0)
-        tcf = data.get("tcf", 1.0)
-        ecf = data.get("ecf", 1.0)
-        return uucp * tcf * ecf
+        return data.get("uucp", 0) * data.get("tcf", 1.0) * data.get("ecf", 1.0)
 
 
 class AIExtractionResult(BaseModel):
-    """Structured result from AI extraction."""
+    """Structured result from AI extraction (internal use only)."""
 
     reasoning_log: Union[str, List[Any]] = Field(
-        ..., description="Chain-of-thought reasoning for each Use Case"
+        ..., description="Chain-of-thought reasoning for each use case"
     )
     actors: List[Actor] = Field(default_factory=list)
     use_cases: List[UseCase] = Field(default_factory=list)
-    metrics: AIExtractionMetrics = Field(
-        default_factory=AIExtractionMetrics,
-        description="Optional AI metrics (backend recalculates authoritative metrics)",
-    )
+    metrics: AIExtractionMetrics = Field(default_factory=AIExtractionMetrics)
 
     @field_validator("reasoning_log", mode="before")
     @classmethod
     def convert_reasoning_log_to_string(cls, v: Any) -> str:
         if isinstance(v, list):
-            # Convert list of objects or strings to a single formatted string
-            parts = []
-            for item in v:
-                if isinstance(item, dict):
-                    parts.append(json.dumps(item, indent=2))
-                else:
-                    parts.append(str(item))
+            parts = [
+                json.dumps(item, indent=2) if isinstance(item, dict) else str(item)
+                for item in v
+            ]
             return "\n".join(parts)
         return str(v)
 
@@ -154,47 +136,202 @@ class AnalysisRequest(BaseModel):
     text: str | None = Field(None, min_length=10, description="Raw requirement text")
 
 
+# ── Public API schemas (appear in Swagger) ───────────────────────────────────
+
+
 class AnalysisMetrics(BaseModel):
-    uaw: float
-    uucw: float
-    uucp: float
-    tcf: float
-    ecf: float
-    ucp: float
-    effort_hours: float
+    """All seven UCP metrics computed by the backend calculator."""
+
+    model_config = ConfigDict(
+        json_schema_extra={
+            "example": {
+                "uaw": 11,
+                "uucw": 95,
+                "uucp": 106,
+                "tcf": 1.02,
+                "ecf": 1.04,
+                "ucp": 112.27,
+                "effort_hours": 2245.4,
+            }
+        }
+    )
+
+    uaw: float = Field(
+        ...,
+        description="Unadjusted Actor Weight — sum of all actor weights (Simple=1, Average=2, Complex=3)",
+    )
+    uucw: float = Field(
+        ...,
+        description="Unadjusted Use Case Weight — sum of all use-case weights (Simple=5, Average=10, Complex=15)",
+    )
+    uucp: float = Field(..., description="Unadjusted Use Case Points = UAW + UUCW")
+    tcf: float = Field(
+        ...,
+        description="Technical Complexity Factor = 0.6 + (0.01 × TF). Baseline ≈ 0.99 (all T-factors = 3)",
+    )
+    ecf: float = Field(
+        ...,
+        description="Environmental Complexity Factor = 1.0 + ((EF − 24) × 0.02). Baseline = 1.00",
+    )
+    ucp: float = Field(..., description="Use Case Points = UUCP × TCF × ECF")
+    effort_hours: float = Field(
+        ..., description="Estimated effort in person-hours = UCP × 20"
+    )
 
 
 class ActorBreakdown(BaseModel):
-    name: str
-    actor_type: ActorType
-    weight: int
+    """A single actor extracted from the requirements."""
+
+    model_config = ConfigDict(
+        json_schema_extra={
+            "example": {"name": "Customer", "actor_type": "average", "weight": 2}
+        }
+    )
+
+    name: str = Field(..., description="Actor name as identified in the requirements")
+    actor_type: ActorType = Field(
+        ..., description="Complexity classification: simple | average | complex"
+    )
+    weight: int = Field(
+        ..., description="Weight assigned by the UCP method (1 / 2 / 3)"
+    )
 
 
 class UseCaseBreakdown(BaseModel):
-    name: str
-    description: str
-    complexity: str
-    weight: int
+    """A single use case extracted from the requirements."""
+
+    model_config = ConfigDict(
+        json_schema_extra={
+            "example": {
+                "name": "Order Placement",
+                "description": "User selects items, confirms payment, and receives a confirmation email.",
+                "complexity": "complex",
+                "weight": 15,
+            }
+        }
+    )
+
+    name: str = Field(
+        ..., description="Use case name as identified in the requirements"
+    )
+    description: str = Field(
+        ...,
+        description="One-sentence description of the use case's purpose and outcome",
+    )
+    complexity: str = Field(
+        ...,
+        description="Complexity tier: simple (1–3 tx) | average (4–7 tx) | complex (≥8 tx)",
+    )
+    weight: int = Field(
+        ..., description="Weight assigned by the UCP method (5 / 10 / 15)"
+    )
 
 
 class AnalysisResponse(BaseModel):
-    """Minimal analysis response for the frontend."""
+    """Complete UCP estimation result returned after any analysis run."""
 
-    project_name: str | None = None
-    actors: List[ActorBreakdown]
-    use_cases: List[UseCaseBreakdown]
-    metrics: AnalysisMetrics
+    model_config = ConfigDict(
+        json_schema_extra={
+            "example": {
+                "project_name": "E-Commerce Platform",
+                "actors": [
+                    {"name": "Customer", "actor_type": "average", "weight": 2},
+                    {"name": "Admin", "actor_type": "complex", "weight": 3},
+                    {"name": "Payment Gateway", "actor_type": "average", "weight": 2},
+                    {"name": "Email Service", "actor_type": "simple", "weight": 1},
+                    {"name": "Inventory System", "actor_type": "complex", "weight": 3},
+                ],
+                "use_cases": [
+                    {
+                        "name": "User Registration",
+                        "description": "Register with email/password.",
+                        "complexity": "average",
+                        "weight": 10,
+                    },
+                    {
+                        "name": "Order Placement",
+                        "description": "Place order with payment.",
+                        "complexity": "complex",
+                        "weight": 15,
+                    },
+                    {
+                        "name": "Product Catalogue Browse",
+                        "description": "Browse product listings.",
+                        "complexity": "simple",
+                        "weight": 5,
+                    },
+                ],
+                "metrics": {
+                    "uaw": 11,
+                    "uucw": 30,
+                    "uucp": 41,
+                    "tcf": 1.02,
+                    "ecf": 1.04,
+                    "ucp": 43.49,
+                    "effort_hours": 869.9,
+                },
+            }
+        }
+    )
+
+    project_name: str | None = Field(
+        None, description="Project name (auto-detected from text or set by the caller)"
+    )
+    actors: List[ActorBreakdown] = Field(
+        ..., description="Ordered list of extracted actors with computed weights"
+    )
+    use_cases: List[UseCaseBreakdown] = Field(
+        ..., description="Ordered list of extracted use cases with computed weights"
+    )
+    metrics: AnalysisMetrics = Field(..., description="All seven UCP metrics")
+
+
+# ── Manual input schemas ─────────────────────────────────────────────────────
 
 
 class ManualActorInput(BaseModel):
-    name: str = Field(..., min_length=1)
-    type: ActorType
+    """A single actor supplied by the caller in manual mode."""
+
+    model_config = ConfigDict(
+        json_schema_extra={"example": {"name": "Customer", "type": "average"}}
+    )
+
+    name: str = Field(
+        ...,
+        min_length=1,
+        description="Actor name (e.g. 'Customer', 'Admin', 'Payment Gateway')",
+    )
+    type: ActorType = Field(
+        ...,
+        description="Complexity: simple (external API) | average (human user) | complex (stateful system)",
+    )
 
 
 class ManualUseCaseInput(BaseModel):
-    name: str = Field(..., min_length=1)
-    description: str = Field("", description="Use case description")
-    complexity: str = Field(..., description="simple|average|complex")
+    """A single use case supplied by the caller in manual mode."""
+
+    model_config = ConfigDict(
+        json_schema_extra={
+            "example": {
+                "name": "Order Placement",
+                "description": "User selects items, confirms payment, and receives confirmation.",
+                "complexity": "complex",
+            }
+        }
+    )
+
+    name: str = Field(..., min_length=1, description="Use case name")
+    description: str = Field(
+        "", description="Short description of the use case's goal and outcome"
+    )
+    complexity: str = Field(
+        ..., description="simple (1–3 tx) | average (4–7 tx) | complex (≥8 tx)"
+    )
+    transactions: int | None = Field(
+        None,
+        ge=1,
+        description="Optional explicit transaction count (defaults to 1 if omitted)",
+    )
 
     @field_validator("complexity", mode="before")
     @classmethod
@@ -206,17 +343,50 @@ class ManualUseCaseInput(BaseModel):
             raise ValueError("complexity must be one of: simple, average, complex")
         return v
 
-    transactions: int | None = Field(None, ge=1, description="Optional. Defaults to 1.")
-
 
 class ManualAnalysisRequest(BaseModel):
+    """Request body for POST /api/analyze/manual."""
+
+    model_config = ConfigDict(
+        json_schema_extra={
+            "example": {
+                "project_name": "E-Commerce Platform",
+                "actors": [
+                    {"name": "Customer", "type": "average"},
+                    {"name": "Admin", "type": "complex"},
+                    {"name": "Payment Gateway", "type": "simple"},
+                ],
+                "use_cases": [
+                    {
+                        "name": "User Registration",
+                        "description": "Register with email and password; welcome email sent.",
+                        "complexity": "average",
+                    },
+                    {
+                        "name": "Order Placement",
+                        "description": "Select items, confirm payment, receive confirmation.",
+                        "complexity": "complex",
+                    },
+                    {
+                        "name": "Product Catalogue Browse",
+                        "description": "Browse and filter the product catalogue.",
+                        "complexity": "simple",
+                    },
+                ],
+            }
+        }
+    )
+
     project_name: str | None = Field(
         None, min_length=1, description="Optional project name"
     )
-    actors: List[ManualActorInput]
-    use_cases: List[ManualUseCaseInput]
+    actors: List[ManualActorInput] = Field(
+        ..., description="List of actors (at least one required)"
+    )
+    use_cases: List[ManualUseCaseInput] = Field(
+        ..., description="List of use cases (at least one required)"
+    )
 
-    # Ensure frontend sends at least something usable
     @field_validator("actors")
     @classmethod
     def actors_not_empty(cls, v: List[ManualActorInput]) -> List[ManualActorInput]:
@@ -234,17 +404,85 @@ class ManualAnalysisRequest(BaseModel):
         return v
 
 
+# ── Project history schemas ──────────────────────────────────────────────────
+
+
 class ProjectSummary(BaseModel):
-    id: int
-    name: str
-    created_at: str
-    metrics: AnalysisMetrics
+    """Summary row returned by GET /api/projects."""
+
+    model_config = ConfigDict(
+        json_schema_extra={
+            "example": {
+                "id": 42,
+                "name": "E-Commerce Platform",
+                "created_at": "2025-04-18T14:32:00",
+                "metrics": {
+                    "uaw": 11,
+                    "uucw": 95,
+                    "uucp": 106,
+                    "tcf": 1.02,
+                    "ecf": 1.04,
+                    "ucp": 112.27,
+                    "effort_hours": 2245.4,
+                },
+            }
+        }
+    )
+
+    id: int = Field(..., description="Unique project ID")
+    name: str = Field(..., description="Project name")
+    created_at: str = Field(..., description="ISO-8601 creation timestamp")
+    metrics: AnalysisMetrics = Field(..., description="Top-level UCP metrics")
 
 
 class ProjectDetailResponse(BaseModel):
-    id: int
-    name: str
-    created_at: str
-    actors: List[ActorBreakdown]
-    use_cases: List[UseCaseBreakdown]
-    metrics: AnalysisMetrics
+    """Full project detail returned by GET /api/projects/{project_id}."""
+
+    model_config = ConfigDict(
+        json_schema_extra={
+            "example": {
+                "id": 42,
+                "name": "E-Commerce Platform",
+                "created_at": "2025-04-18T14:32:00",
+                "actors": [
+                    {"name": "Customer", "actor_type": "average", "weight": 2},
+                    {"name": "Admin", "actor_type": "complex", "weight": 3},
+                    {"name": "Payment Gateway", "actor_type": "simple", "weight": 1},
+                ],
+                "use_cases": [
+                    {
+                        "name": "User Registration",
+                        "description": "Register and send welcome email.",
+                        "complexity": "average",
+                        "weight": 10,
+                    },
+                    {
+                        "name": "Order Placement",
+                        "description": "Select items, pay, confirm.",
+                        "complexity": "complex",
+                        "weight": 15,
+                    },
+                ],
+                "metrics": {
+                    "uaw": 6,
+                    "uucw": 25,
+                    "uucp": 31,
+                    "tcf": 1.02,
+                    "ecf": 1.04,
+                    "ucp": 32.88,
+                    "effort_hours": 657.7,
+                },
+            }
+        }
+    )
+
+    id: int = Field(..., description="Unique project ID")
+    name: str = Field(..., description="Project name")
+    created_at: str = Field(..., description="ISO-8601 creation timestamp")
+    actors: List[ActorBreakdown] = Field(
+        ..., description="All actors with computed weights"
+    )
+    use_cases: List[UseCaseBreakdown] = Field(
+        ..., description="All use cases with computed weights"
+    )
+    metrics: AnalysisMetrics = Field(..., description="All seven UCP metrics")

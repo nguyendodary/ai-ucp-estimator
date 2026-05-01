@@ -1,5 +1,16 @@
-import React, { useEffect, useMemo, useState } from "react";
-import { ArrowLeft, Download, Eye, Trash2 } from "lucide-react";
+import React, { useEffect, useMemo, useRef, useState } from "react";
+import {
+  ArrowLeft,
+  BriefcaseBusiness,
+  Check,
+  Download,
+  Eye,
+  Layers,
+  Pencil,
+  Shield,
+  Trash2,
+  Users,
+} from "lucide-react";
 
 import {
   deleteProject,
@@ -18,8 +29,37 @@ import DataTable from "../components/tables/DataTable";
 import WeightsCharts from "../components/charts/WeightsCharts";
 import StatCard from "../components/cards/StatCard";
 import UcpBreakdownCard from "../components/cards/UcpBreakdownCard";
+import EstimationDetailsCard from "../components/cards/EstimationDetailsCard";
+import { cn } from "../lib/utils";
 
-import { BriefcaseBusiness, Layers, Shield, Users } from "lucide-react";
+// ─── UCP weight maps (mirrors backend calculator) ──────────────────────────
+const ACTOR_WEIGHTS = { simple: 1, average: 2, complex: 3 };
+const UC_WEIGHTS = { simple: 5, average: 10, complex: 15 };
+
+/**
+ * Client-side metric recalculation — called whenever a classification is
+ * changed in the editable tables.  TCF and ECF are fixed from the API.
+ */
+function recalculate(actors, useCases, tcf, ecf) {
+  const updatedActors = actors.map((a) => ({
+    ...a,
+    weight: ACTOR_WEIGHTS[a.actor_type] ?? 1,
+  }));
+  const updatedUseCases = useCases.map((uc) => ({
+    ...uc,
+    weight: UC_WEIGHTS[uc.complexity] ?? 5,
+  }));
+  const uaw = updatedActors.reduce((s, a) => s + a.weight, 0);
+  const uucw = updatedUseCases.reduce((s, uc) => s + uc.weight, 0);
+  const uucp = uaw + uucw;
+  const ucp = uucp * tcf * ecf;
+  const effort_hours = ucp * 20;
+  return {
+    actors: updatedActors,
+    useCases: updatedUseCases,
+    metrics: { uaw, uucw, uucp, tcf, ecf, ucp, effort_hours },
+  };
+}
 
 function formatMetric(v, decimals) {
   if (v === null || v === undefined) return "—";
@@ -48,6 +88,7 @@ function DetailSkeleton() {
         ))}
       </div>
       <div className="h-[420px] rounded-2xl bg-zinc-200/60 dark:bg-zinc-800/40" />
+      <div className="h-[160px] rounded-2xl bg-zinc-200/60 dark:bg-zinc-800/40" />
       <div className="grid grid-cols-1 lg:grid-cols-2 gap-6">
         {Array.from({ length: 2 }).map((_, i) => (
           <div
@@ -61,33 +102,28 @@ function DetailSkeleton() {
 }
 
 export default function HistoryPage() {
+  // ── List state ─────────────────────────────────────────────────────────────
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState("");
   const [projects, setProjects] = useState([]);
   const [search, setSearch] = useState("");
 
-  // drill-down
+  // ── Detail / drill-down state ──────────────────────────────────────────────
   const [view, setView] = useState("list");
   const [selectedId, setSelectedId] = useState(null);
   const [selectedDetail, setSelectedDetail] = useState(null);
   const [detailLoading, setDetailLoading] = useState(false);
   const [detailError, setDetailError] = useState("");
 
-  const loadProjects = async () => {
-    try {
-      setLoading(true);
-      setError("");
-      const res = await listProjects();
-      setProjects(res || []);
-    } catch (e) {
-      setError(
-        e?.response?.data?.detail || e?.message || "Failed to load projects.",
-      );
-    } finally {
-      setLoading(false);
-    }
-  };
+  // ── Editing state ──────────────────────────────────────────────────────────
+  // editedDetail is a local copy of selectedDetail enriched with `notes` fields.
+  // It diverges from selectedDetail when the user changes classifications.
+  const [editedDetail, setEditedDetail] = useState(null);
+  const [isEditing, setIsEditing] = useState(false);
+  // Signals that the next load should automatically open in editing mode.
+  const pendingEditRef = useRef(false);
 
+  // ── Load project list on mount ─────────────────────────────────────────────
   useEffect(() => {
     let mounted = true;
     (async () => {
@@ -112,18 +148,43 @@ export default function HistoryPage() {
     };
   }, []);
 
+  // ── Initialise editedDetail whenever a fresh project detail arrives ────────
+  useEffect(() => {
+    if (!selectedDetail) {
+      setEditedDetail(null);
+      return;
+    }
+    setEditedDetail({
+      ...selectedDetail,
+      actors: selectedDetail.actors.map((a) => ({ ...a, notes: "" })),
+      use_cases: selectedDetail.use_cases.map((uc) => ({ ...uc, notes: "" })),
+    });
+    // Apply the pending edit flag that was set before the async load.
+    setIsEditing(pendingEditRef.current);
+    pendingEditRef.current = false;
+  }, [selectedDetail]);
+
   const filtered = useMemo(() => {
     const q = search.trim().toLowerCase();
     if (!q) return projects;
     return projects.filter((p) => (p.name || "").toLowerCase().includes(q));
   }, [projects, search]);
 
-  const openProject = async (id) => {
+  // ── Navigation ─────────────────────────────────────────────────────────────
+  /**
+   * Open a project's detail view.
+   * @param {number}  id           — project id
+   * @param {boolean} startEditing — if true, detail view opens in editing mode
+   */
+  const openProject = async (id, startEditing = false) => {
     setView("detail");
     setSelectedId(id);
     setDetailLoading(true);
     setDetailError("");
     setSelectedDetail(null);
+    setEditedDetail(null);
+    setIsEditing(false);
+    pendingEditRef.current = startEditing;
     try {
       const detail = await getProjectDetail(id);
       setSelectedDetail(detail);
@@ -142,6 +203,8 @@ export default function HistoryPage() {
     setView("list");
     setSelectedId(null);
     setSelectedDetail(null);
+    setEditedDetail(null);
+    setIsEditing(false);
     setDetailError("");
   };
 
@@ -172,12 +235,48 @@ export default function HistoryPage() {
     }
   };
 
-  /* ─── DETAIL VIEW ─── */
+  // ── Editing handlers ────────────────────────────────────────────────────────
+  const handleUpdateActor = (index, patch) => {
+    setEditedDetail((prev) => {
+      if (!prev) return prev;
+      const newActors = prev.actors.map((a, i) =>
+        i === index ? { ...a, ...patch } : a,
+      );
+      const { actors, useCases, metrics } = recalculate(
+        newActors,
+        prev.use_cases,
+        prev.metrics.tcf,
+        prev.metrics.ecf,
+      );
+      return { ...prev, actors, use_cases: useCases, metrics };
+    });
+  };
+
+  const handleUpdateUseCase = (index, patch) => {
+    setEditedDetail((prev) => {
+      if (!prev) return prev;
+      const newUseCases = prev.use_cases.map((uc, i) =>
+        i === index ? { ...uc, ...patch } : uc,
+      );
+      const { actors, useCases, metrics } = recalculate(
+        prev.actors,
+        newUseCases,
+        prev.metrics.tcf,
+        prev.metrics.ecf,
+      );
+      return { ...prev, actors, use_cases: useCases, metrics };
+    });
+  };
+
+  // ══════════════════════════════════════════════════════════════════════════
+  // DETAIL VIEW
+  // ══════════════════════════════════════════════════════════════════════════
   if (view === "detail") {
     return (
       <div className="space-y-6">
-        {/* Top bar */}
+        {/* ── Top bar ── */}
         <div className="flex items-start justify-between gap-4 flex-wrap">
+          {/* Left: back + title */}
           <div className="flex items-center gap-3 min-w-0">
             <button
               type="button"
@@ -187,13 +286,15 @@ export default function HistoryPage() {
               <ArrowLeft className="h-4 w-4" />
               Back
             </button>
-            {selectedDetail ? (
+            {editedDetail ? (
               <div className="min-w-0">
                 <h2 className="text-base font-black tracking-tight text-zinc-900 dark:text-zinc-50 truncate">
-                  {selectedDetail.name}
+                  {editedDetail.name}
                 </h2>
                 <p className="text-xs text-zinc-500 dark:text-zinc-400 mt-0.5">
-                  Created {selectedDetail.created_at}
+                  {isEditing
+                    ? "Editing mode — classification changes update all metrics in real time."
+                    : `Created ${editedDetail.created_at}`}
                 </p>
               </div>
             ) : (
@@ -203,17 +304,43 @@ export default function HistoryPage() {
             )}
           </div>
 
-          {selectedDetail ? (
+          {/* Right: action buttons */}
+          {editedDetail ? (
             <div className="flex items-center gap-2 flex-shrink-0">
+              {/* Edit / Done toggle */}
+              <Button
+                variant={isEditing ? "default" : "outline"}
+                size="md"
+                onClick={() => setIsEditing((v) => !v)}
+                className={cn(
+                  "gap-1.5",
+                  isEditing &&
+                    "bg-emerald-600 hover:bg-emerald-700 border-emerald-600",
+                )}
+              >
+                {isEditing ? (
+                  <>
+                    <Check className="h-3.5 w-3.5" />
+                    Done Editing
+                  </>
+                ) : (
+                  <>
+                    <Pencil className="h-3.5 w-3.5" />
+                    Edit
+                  </>
+                )}
+              </Button>
+
               <Button variant="outline" size="md" onClick={handleExportPdf}>
                 <Download className="h-4 w-4" />
                 Export PDF
               </Button>
+
               <Button
                 variant="ghost"
                 size="md"
                 className="h-9 w-9 p-0 text-red-600 hover:text-red-700 hover:bg-red-50 dark:text-red-400 dark:hover:bg-red-950/30"
-                onClick={() => handleDelete(selectedId, selectedDetail.name)}
+                onClick={() => handleDelete(selectedId, editedDetail.name)}
               >
                 <Trash2 className="h-4 w-4" />
               </Button>
@@ -221,83 +348,111 @@ export default function HistoryPage() {
           ) : null}
         </div>
 
-        {/* Content */}
+        {/* ── Content ── */}
         {detailLoading ? (
           <DetailSkeleton />
         ) : detailError ? (
           <div className="rounded-2xl border border-red-500/40 bg-red-50/30 text-red-700 dark:bg-red-500/10 dark:text-red-300 px-5 py-4 font-semibold">
             {detailError}
           </div>
-        ) : selectedDetail ? (
+        ) : editedDetail ? (
           <div className="space-y-6">
-            {/* Metrics */}
+            {/* Metric stat cards — live-updated from editedDetail */}
             <div className="grid grid-cols-2 sm:grid-cols-4 lg:grid-cols-7 gap-4">
               <StatCard
                 label="UAW"
-                value={selectedDetail.metrics.uaw}
+                value={editedDetail.metrics.uaw}
                 icon={Users}
                 format={(v) => formatMetric(v, 0)}
               />
               <StatCard
                 label="UUCW"
-                value={selectedDetail.metrics.uucw}
+                value={editedDetail.metrics.uucw}
                 icon={Layers}
                 format={(v) => formatMetric(v, 0)}
               />
               <StatCard
                 label="UUCP"
-                value={selectedDetail.metrics.uucp}
+                value={editedDetail.metrics.uucp}
                 icon={Layers}
                 format={(v) => formatMetric(v, 0)}
               />
               <StatCard
                 label="TCF"
-                value={selectedDetail.metrics.tcf}
+                value={editedDetail.metrics.tcf}
                 icon={Shield}
                 format={(v) => formatMetric(v, 3)}
               />
               <StatCard
                 label="ECF"
-                value={selectedDetail.metrics.ecf}
+                value={editedDetail.metrics.ecf}
                 icon={BriefcaseBusiness}
                 format={(v) => formatMetric(v, 3)}
               />
               <StatCard
                 label="UCP"
-                value={selectedDetail.metrics.ucp}
+                value={editedDetail.metrics.ucp}
                 icon={Layers}
                 format={(v) => formatMetric(v, 2)}
               />
               <StatCard
                 label="Effort Hours"
-                value={selectedDetail.metrics.effort_hours}
+                value={editedDetail.metrics.effort_hours}
                 icon={Users}
                 format={(v) => formatMetric(v, 1)}
                 unit="hrs"
               />
             </div>
 
-            {/* Charts */}
+            {/* Weight distribution charts */}
             <WeightsCharts
-              actors={selectedDetail.actors}
-              useCases={selectedDetail.use_cases}
+              actors={editedDetail.actors}
+              useCases={editedDetail.use_cases}
             />
 
             {/* Formula breakdown */}
-            <UcpBreakdownCard metrics={selectedDetail.metrics} />
+            <UcpBreakdownCard metrics={editedDetail.metrics} />
 
-            {/* Tables */}
+            {/* Completion estimate */}
+            <EstimationDetailsCard
+              effortHours={editedDetail.metrics.effort_hours}
+            />
+
+            {/* Actors & use-cases tables — editable when isEditing=true */}
             <div className="grid grid-cols-1 lg:grid-cols-2 gap-6">
-              <DataTable variant="actors" rows={selectedDetail.actors} />
-              <DataTable variant="use_cases" rows={selectedDetail.use_cases} />
+              <DataTable
+                variant="actors"
+                rows={editedDetail.actors}
+                editable={isEditing}
+                onUpdateRow={handleUpdateActor}
+              />
+              <DataTable
+                variant="use_cases"
+                rows={editedDetail.use_cases}
+                editable={isEditing}
+                onUpdateRow={handleUpdateUseCase}
+              />
             </div>
+
+            {/* Editing hint banner */}
+            {isEditing && (
+              <div className="rounded-xl border border-amber-300/50 bg-amber-50/40 dark:bg-amber-950/10 dark:border-amber-700/30 px-5 py-3 text-xs text-amber-700 dark:text-amber-300 font-medium">
+                <span className="font-bold">Editing mode:</span> Change actor
+                types or use-case complexities in the tables above — UAW, UUCW,
+                UUCP, UCP, and Effort update instantly. Click 💬 on any row to
+                record a decision note. Click{" "}
+                <span className="font-bold">Done Editing</span> when finished.
+              </div>
+            )}
           </div>
         ) : null}
       </div>
     );
   }
 
-  /* ─── LIST VIEW ─── */
+  // ══════════════════════════════════════════════════════════════════════════
+  // LIST VIEW
+  // ══════════════════════════════════════════════════════════════════════════
   return (
     <div className="space-y-6">
       <div className="flex items-center justify-between gap-4">
@@ -347,7 +502,7 @@ export default function HistoryPage() {
           </CardHeader>
           <CardContent className="pt-0">
             <div className="overflow-x-auto">
-              <table className="w-full min-w-[640px] text-sm">
+              <table className="w-full min-w-[700px] text-sm">
                 <thead>
                   <tr className="text-left">
                     <th className="py-3 px-3 text-xs font-semibold text-zinc-500 dark:text-zinc-400">
@@ -397,15 +552,29 @@ export default function HistoryPage() {
                       </td>
                       <td className="py-3 px-3 text-right">
                         <div className="flex items-center justify-end gap-2">
+                          {/* ── Edit button ── */}
                           <Button
                             variant="outline"
                             size="md"
-                            className="min-w-[88px]"
+                            onClick={() => openProject(p.id, true)}
+                            className="gap-1.5 text-amber-600 border-amber-300/70 hover:bg-amber-50 hover:border-amber-400 dark:text-amber-400 dark:border-amber-700/50 dark:hover:bg-amber-950/20"
+                          >
+                            <Pencil className="h-3.5 w-3.5" />
+                            Edit
+                          </Button>
+
+                          {/* ── Open button ── */}
+                          <Button
+                            variant="outline"
+                            size="md"
+                            className="min-w-[80px]"
                             onClick={() => openProject(p.id)}
                           >
                             <Eye className="h-4 w-4" />
                             Open
                           </Button>
+
+                          {/* ── Delete button ── */}
                           <Button
                             variant="ghost"
                             size="md"

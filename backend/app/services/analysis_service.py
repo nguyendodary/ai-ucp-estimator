@@ -59,10 +59,12 @@ async def analyze_text(
 ) -> AnalysisResponse:
     extraction = await ai_service.extract(raw_text)
 
+    # reasoning_log is always str at runtime (the validator coerces it),
+    # but the union type annotation requires an explicit cast here.
     metrics_dict, actor_breakdowns, use_case_breakdowns = calculator.compute(
         extraction.actors,
         extraction.use_cases,
-        extraction.reasoning_log,
+        str(extraction.reasoning_log),
     )
 
     metrics = AnalysisMetrics(**metrics_dict)

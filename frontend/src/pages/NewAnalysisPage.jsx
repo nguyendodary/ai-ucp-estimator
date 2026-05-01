@@ -7,15 +7,18 @@ import DataTable from "../components/tables/DataTable";
 import WeightsCharts from "../components/charts/WeightsCharts";
 import StatCard from "../components/cards/StatCard";
 import UcpBreakdownCard from "../components/cards/UcpBreakdownCard";
+import EstimationDetailsCard from "../components/cards/EstimationDetailsCard";
 
 import { Button } from "../components/ui/button";
 import { Card, CardContent, CardHeader } from "../components/ui/card";
 
 import {
   BriefcaseBusiness,
+  Check,
   CheckCircle2,
   ClipboardList,
   Layers,
+  Pencil,
   RefreshCw,
   Shield,
   Sparkles,
@@ -23,9 +26,40 @@ import {
 } from "lucide-react";
 import { cn } from "../lib/utils";
 
+// ─── UCP weight maps (mirrors the backend calculator) ──────────────────────
+const ACTOR_WEIGHTS = { simple: 1, average: 2, complex: 3 };
+const UC_WEIGHTS = { simple: 5, average: 10, complex: 15 };
+
 const ACTOR_TYPES = ["simple", "average", "complex"];
 const COMPLEXITIES = ["simple", "average", "complex"];
 
+// ─── Client-side metric recalculation ──────────────────────────────────────
+/**
+ * Given (possibly edited) actors and use-cases, recompute all UCP metrics.
+ * TCF and ECF are taken directly from the original API result and never change.
+ */
+function recalculate(actors, useCases, tcf, ecf) {
+  const updatedActors = actors.map((a) => ({
+    ...a,
+    weight: ACTOR_WEIGHTS[a.actor_type] ?? 1,
+  }));
+  const updatedUseCases = useCases.map((uc) => ({
+    ...uc,
+    weight: UC_WEIGHTS[uc.complexity] ?? 5,
+  }));
+  const uaw = updatedActors.reduce((s, a) => s + a.weight, 0);
+  const uucw = updatedUseCases.reduce((s, uc) => s + uc.weight, 0);
+  const uucp = uaw + uucw;
+  const ucp = uucp * tcf * ecf;
+  const effort_hours = ucp * 20;
+  return {
+    actors: updatedActors,
+    useCases: updatedUseCases,
+    metrics: { uaw, uucw, uucp, tcf, ecf, ucp, effort_hours },
+  };
+}
+
+// ─── Skeleton / empty placeholders ─────────────────────────────────────────
 function ResultsEmpty() {
   return (
     <Card className="rounded-2xl">
@@ -79,6 +113,7 @@ function ResultSkeleton() {
   );
 }
 
+// ─── Mode tabs ──────────────────────────────────────────────────────────────
 const TABS = [
   { key: "ai", label: "AI Extraction", Icon: Sparkles },
   { key: "manual", label: "Manual", Icon: ClipboardList },
@@ -90,6 +125,7 @@ function fmt(v, decimals) {
   return Number.isNaN(n) ? "—" : n.toFixed(decimals);
 }
 
+// ─── Component ──────────────────────────────────────────────────────────────
 export default function NewAnalysisPage({ onNavigateHistory }) {
   const [mode, setMode] = useState("ai");
   const [projectName, setProjectName] = useState("");
@@ -101,8 +137,12 @@ export default function NewAnalysisPage({ onNavigateHistory }) {
 
   const [loading, setLoading] = useState(false);
   const [error, setError] = useState("");
-  const [result, setResult] = useState(null);
+  const [result, setResult] = useState(null); // raw API result
   const [fileError, setFileError] = useState("");
+
+  // ── Editable result (local copy of `result` that can diverge on edits) ──
+  const [editedResult, setEditedResult] = useState(null);
+  const [isEditing, setIsEditing] = useState(false);
 
   const isManual = mode === "manual";
   const canRunManual = actors.length > 0 && useCases.length > 0;
@@ -116,6 +156,21 @@ export default function NewAnalysisPage({ onNavigateHistory }) {
     }
   }, [result]);
 
+  // Initialise editedResult whenever a fresh API result arrives
+  useEffect(() => {
+    if (!result) {
+      setEditedResult(null);
+      return;
+    }
+    setEditedResult({
+      ...result,
+      actors: result.actors.map((a) => ({ ...a, notes: "" })),
+      use_cases: result.use_cases.map((uc) => ({ ...uc, notes: "" })),
+    });
+    setIsEditing(false);
+  }, [result]);
+
+  // ── Manual panel handlers ───────────────────────────────────────────────
   const updateActor = (id, patch) =>
     setActors((prev) =>
       prev.map((a) => (a.id === id ? { ...a, ...patch } : a)),
@@ -139,6 +194,46 @@ export default function NewAnalysisPage({ onNavigateHistory }) {
     return "";
   };
 
+  // ── Editable result handlers ─────────────────────────────────────────────
+  /**
+   * Update an actor at `index` with `patch`, then recalculate all metrics.
+   */
+  const handleUpdateActor = (index, patch) => {
+    setEditedResult((prev) => {
+      if (!prev) return prev;
+      const newActors = prev.actors.map((a, i) =>
+        i === index ? { ...a, ...patch } : a,
+      );
+      const { actors, useCases, metrics } = recalculate(
+        newActors,
+        prev.use_cases,
+        prev.metrics.tcf,
+        prev.metrics.ecf,
+      );
+      return { ...prev, actors, use_cases: useCases, metrics };
+    });
+  };
+
+  /**
+   * Update a use-case at `index` with `patch`, then recalculate all metrics.
+   */
+  const handleUpdateUseCase = (index, patch) => {
+    setEditedResult((prev) => {
+      if (!prev) return prev;
+      const newUseCases = prev.use_cases.map((uc, i) =>
+        i === index ? { ...uc, ...patch } : uc,
+      );
+      const { actors, useCases, metrics } = recalculate(
+        prev.actors,
+        newUseCases,
+        prev.metrics.tcf,
+        prev.metrics.ecf,
+      );
+      return { ...prev, actors, use_cases: useCases, metrics };
+    });
+  };
+
+  // ── Run estimation ────────────────────────────────────────────────────────
   const runEstimation = async () => {
     setError("");
     setFileError("");
@@ -162,7 +257,6 @@ export default function NewAnalysisPage({ onNavigateHistory }) {
 
         const data = await analyzeManual(payload);
         setResult(data);
-        onNavigateHistory?.();
         return;
       }
 
@@ -177,7 +271,6 @@ export default function NewAnalysisPage({ onNavigateHistory }) {
           projectName.trim() || null,
         );
         setResult(data);
-        onNavigateHistory?.();
         return;
       }
 
@@ -195,6 +288,7 @@ export default function NewAnalysisPage({ onNavigateHistory }) {
     }
   };
 
+  // ─── Render ────────────────────────────────────────────────────────────────
   return (
     <div className="space-y-5">
       {/* ── Input card ── */}
@@ -320,70 +414,97 @@ export default function NewAnalysisPage({ onNavigateHistory }) {
       {loading && !result ? <ResultSkeleton /> : null}
 
       {/* ── Results ── */}
-      {result ? (
+      {editedResult ? (
         <div className="space-y-6">
           {/* Results header */}
-          <div className="flex items-center gap-3">
-            <div className="h-8 w-8 rounded-xl bg-emerald-500/10 border border-emerald-500/20 flex items-center justify-center flex-shrink-0">
-              <CheckCircle2 className="h-4 w-4 text-emerald-600 dark:text-emerald-400" />
+          <div className="flex items-center justify-between gap-3 flex-wrap">
+            <div className="flex items-center gap-3 min-w-0">
+              <div className="h-8 w-8 rounded-xl bg-emerald-500/10 border border-emerald-500/20 flex items-center justify-center flex-shrink-0">
+                <CheckCircle2 className="h-4 w-4 text-emerald-600 dark:text-emerald-400" />
+              </div>
+              <div className="min-w-0">
+                <h3 className="text-sm font-black tracking-tight text-zinc-900 dark:text-zinc-50">
+                  Estimation Results
+                  {editedResult.project_name ? (
+                    <span className="ml-2 text-blue-600 dark:text-blue-400">
+                      — {editedResult.project_name}
+                    </span>
+                  ) : null}
+                </h3>
+                <p className="text-xs text-zinc-500 dark:text-zinc-400 mt-0.5">
+                  {isEditing
+                    ? "Editing mode — classification changes update all metrics in real time."
+                    : "Saved to history. Edit values, add notes, and estimate completion below."}
+                </p>
+              </div>
             </div>
-            <div className="min-w-0">
-              <h3 className="text-sm font-black tracking-tight text-zinc-900 dark:text-zinc-50">
-                Estimation Results
-                {result.project_name ? (
-                  <span className="ml-2 text-blue-600 dark:text-blue-400">
-                    — {result.project_name}
-                  </span>
-                ) : null}
-              </h3>
-              <p className="text-xs text-zinc-500 dark:text-zinc-400 mt-0.5">
-                Saved to history. Review the metrics, charts, and breakdown
-                below.
-              </p>
-            </div>
+
+            {/* Edit / Done toggle */}
+            <Button
+              variant={isEditing ? "default" : "outline"}
+              size="md"
+              onClick={() => setIsEditing((v) => !v)}
+              className={cn(
+                "flex-shrink-0 gap-1.5",
+                isEditing &&
+                  "bg-emerald-600 hover:bg-emerald-700 border-emerald-600",
+              )}
+            >
+              {isEditing ? (
+                <>
+                  <Check className="h-3.5 w-3.5" />
+                  Done Editing
+                </>
+              ) : (
+                <>
+                  <Pencil className="h-3.5 w-3.5" />
+                  Edit Results
+                </>
+              )}
+            </Button>
           </div>
 
-          {/* Metric stat cards */}
+          {/* Metric stat cards — live-updated from editedResult */}
           <div className="grid grid-cols-2 sm:grid-cols-4 lg:grid-cols-7 gap-4">
             <StatCard
               label="UAW"
-              value={result.metrics.uaw}
+              value={editedResult.metrics.uaw}
               icon={Users}
               format={(v) => fmt(v, 0)}
             />
             <StatCard
               label="UUCW"
-              value={result.metrics.uucw}
+              value={editedResult.metrics.uucw}
               icon={Layers}
               format={(v) => fmt(v, 0)}
             />
             <StatCard
               label="UUCP"
-              value={result.metrics.uucp}
+              value={editedResult.metrics.uucp}
               icon={Layers}
               format={(v) => fmt(v, 0)}
             />
             <StatCard
               label="TCF"
-              value={result.metrics.tcf}
+              value={editedResult.metrics.tcf}
               icon={Shield}
               format={(v) => fmt(v, 3)}
             />
             <StatCard
               label="ECF"
-              value={result.metrics.ecf}
+              value={editedResult.metrics.ecf}
               icon={BriefcaseBusiness}
               format={(v) => fmt(v, 3)}
             />
             <StatCard
               label="UCP"
-              value={result.metrics.ucp}
+              value={editedResult.metrics.ucp}
               icon={Layers}
               format={(v) => fmt(v, 2)}
             />
             <StatCard
               label="Effort"
-              value={result.metrics.effort_hours}
+              value={editedResult.metrics.effort_hours}
               icon={Users}
               format={(v) => fmt(v, 1)}
               unit="hrs"
@@ -391,16 +512,45 @@ export default function NewAnalysisPage({ onNavigateHistory }) {
           </div>
 
           {/* Weight distribution charts */}
-          <WeightsCharts actors={result.actors} useCases={result.use_cases} />
+          <WeightsCharts
+            actors={editedResult.actors}
+            useCases={editedResult.use_cases}
+          />
 
           {/* Formula breakdown */}
-          <UcpBreakdownCard metrics={result.metrics} />
+          <UcpBreakdownCard metrics={editedResult.metrics} />
 
-          {/* Detailed tables */}
+          {/* ── Completion estimate ── */}
+          <EstimationDetailsCard
+            effortHours={editedResult.metrics.effort_hours}
+          />
+
+          {/* Detailed tables — editable when isEditing=true */}
           <div className="grid grid-cols-1 lg:grid-cols-2 gap-6">
-            <DataTable variant="actors" rows={result.actors} />
-            <DataTable variant="use_cases" rows={result.use_cases} />
+            <DataTable
+              variant="actors"
+              rows={editedResult.actors}
+              editable={isEditing}
+              onUpdateRow={handleUpdateActor}
+            />
+            <DataTable
+              variant="use_cases"
+              rows={editedResult.use_cases}
+              editable={isEditing}
+              onUpdateRow={handleUpdateUseCase}
+            />
           </div>
+
+          {/* Editing hint banner */}
+          {isEditing && (
+            <div className="rounded-xl border border-amber-300/50 bg-amber-50/40 dark:bg-amber-950/10 dark:border-amber-700/30 px-5 py-3 text-xs text-amber-700 dark:text-amber-300 font-medium">
+              <span className="font-bold">Editing mode:</span> Change actor
+              types or use-case complexities in the tables above — UAW, UUCW,
+              UUCP, UCP, and Effort update instantly. Click 💬 on any row to
+              record a decision note. Click{" "}
+              <span className="font-bold">Done Editing</span> when finished.
+            </div>
+          )}
         </div>
       ) : loading ? null : (
         <ResultsEmpty />

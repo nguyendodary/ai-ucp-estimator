@@ -5,6 +5,12 @@ __pycache__/
 dist/
 build/
 
+# SQLite databases (auto-created at runtime)
+*.db
+*.sqlite
+*.sqlite3
+backend/data/
+
 # Environment and local secrets
 .env
 .env.*

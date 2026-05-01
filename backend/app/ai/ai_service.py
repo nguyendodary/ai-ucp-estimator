@@ -7,13 +7,8 @@ from pathlib import Path
 from typing import Any, Dict
 
 from openai import AsyncOpenAI
-from tenacity import (
-    retry,
-    retry_if_exception_type,
-    stop_after_attempt,
-    wait_exponential,
-)
 
+# tenacity is available for retry decorators if needed in future extensions
 from app.core.cache import cache
 from app.core.config import settings
 from app.models.schemas import AIExtractionResult
@@ -251,7 +246,7 @@ def _normalize_ai_response(data: Dict[str, Any]) -> Dict[str, Any]:
                 # If it's a weight number (5/10/15), map to complexity string
                 if isinstance(val, (int, float)):
                     weight_to_complexity = {5: "simple", 10: "average", 15: "complex"}
-                    uc["complexity"] = weight_to_complexity.get(val, "average")
+                    uc["complexity"] = weight_to_complexity.get(int(val), "average")
                 else:
                     uc["complexity"] = str(val).lower()
 

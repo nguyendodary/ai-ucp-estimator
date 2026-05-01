@@ -1,6 +1,8 @@
 import axios from "axios";
 
-const API_BASE_URL = process.env.REACT_APP_API_URL || "http://localhost:8000";
+// Empty string → relative URLs → webpack proxy forwards /api/* to backend:8000.
+// Set REACT_APP_API_URL explicitly only when running outside Docker.
+const API_BASE_URL = process.env.REACT_APP_API_URL || "";
 
 const api = axios.create({
   baseURL: API_BASE_URL,
